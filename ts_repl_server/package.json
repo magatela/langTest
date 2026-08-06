@@ -1,9 +1,9 @@
 {
-  "name": "backend",
+  "name": "qa-repl-server",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "npx tsx ./src/repl.ts"
+    "start": "tsx ./repl/repl.ts"
   },
   "dependencies": {
     "playwright": "^1.58.0",
