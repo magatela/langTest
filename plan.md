@@ -10,6 +10,9 @@ El sistema se compone de **4 módulos independientes**, un **Toolbox de Herramie
 
 ```text
 qa_agent_system/
+├── .venv/                      # Entorno virtual de Python (aislado y excluido en .gitignore)
+├── requirements.txt            # Dependencias Python del proyecto (LangGraph, LangChain, Pydantic, etc.)
+├── .gitignore                  # Exclusión de .venv/, node_modules/, .env y temporales
 ├── config/                     # Configuración global, Jira API tokens y credenciales LLM
 ├── core/                       # Núcleo compartido (Modelos de datos, utilidades)
 │   ├── schemas.py              # Definiciones Pydantic (UserStory, JiraTestCase, NavigationMap, POMMeta)
@@ -37,11 +40,11 @@ qa_agent_system/
 │       └── templates/          # Plantillas de POM TS por tipo de vista (Form.ts.j2, Table.ts.j2, etc.)
 ├── shared_poms/                # Repositorio de clases POM en TypeScript (*.ts)
 ├── ts_repl_server/             # Entorno/Runner Node.js en TypeScript (evaluación viva de Playwright TS)
-│   ├── package.json
-│   ├── tsconfig.json
+│   ├── package.json            # Dependencias Node.js (@playwright/test, ts-node, typescript)
+│   ├── tsconfig.json           # Configuración del compilador TypeScript
+│   ├── node_modules/           # Módulos instalados para Playwright/TS (en .gitignore)
 │   └── repl_server.ts          # Servidor REPL en TS que mantiene el browser context activo
 ├── tests/                      # Pruebas unitarias e integrales del propio framework
-├── plan.txt                    # Documentación del plan de desarrollo (formato Markdown)
 └── main.py                     # CLI u Orquestador global para ejecutar flujos combinados
 ```
 
@@ -49,8 +52,12 @@ qa_agent_system/
 
 ## 2. Fases de Implementación y Pasos Detallados
 
-### Fase 1: Núcleo Compartido, Contratos de Datos y Herramientas Python (`core/` y `tools/`)
+### Fase 1: Configuración de Entornos, Núcleo Compartido y Herramientas Python (`core/` y `tools/`)
 
+- **Paso 1.0:** Configuración Inicial de Entornos y Dependencias:
+  - Crear el entorno virtual Python `.venv/` en la raíz y configurar `requirements.txt` (`langgraph`, `langchain`, `pydantic`, `httpx`, `jinja2`, etc.).
+  - Inicializar `ts_repl_server/package.json` e instalar dependencias Node.js (`@playwright/test`, `ts-node`, `typescript`).
+  - Crear `.gitignore` asegurando la exclusión de `.venv/`, `ts_repl_server/node_modules/` y variables de entorno `.env`.
 - **Paso 1.1:** Definir modelos Pydantic centralizados (`core/schemas.py`):
   - `NavigationMap`: Vistas, rutas, selectores TypeScript/CSS/XPath clave, condiciones y parámetros.
   - `JiraTestCase`: Título, prerrequisitos, pasos (acción/resultado esperado), criterios de aceptación vinculados, ID de la US en Jira.
