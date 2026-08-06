@@ -9,7 +9,7 @@ El sistema se compone de **4 módulos independientes**, un **Toolbox de Herramie
 ### Estructura de Directorios Propuesta
 
 ```text
-qa_agent_system/
+langTest/
 ├── .venv/                      # Entorno virtual de Python (aislado y excluido en .gitignore)
 ├── requirements.txt            # Dependencias Python del proyecto (LangGraph, LangChain, Pydantic, etc.)
 ├── .gitignore                  # Exclusión de .venv/, node_modules/, .env y temporales
