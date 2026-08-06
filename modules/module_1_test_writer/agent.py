@@ -1,149 +1,175 @@
-import yaml
-from langchain_openai import ChatOpenAI
-from typing import TypedDict, Annotated, List 
+# modules/module_1_test_writer/agent.py
+import json
 import operator
-from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
+from pathlib import Path
+from typing import TypedDict, Annotated, List, Optional, Callable, Dict, Any
 
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
 from langgraph.graph import StateGraph, END
 
-with open('config/config.yaml', 'r') as file:
-    modelsConfigData = yaml.safe_load(file)
-# es gibt nur drei Modelle 0 1 2
-writerModelIndex = 0 # Model, das den Test Schreibt
-reviewerModelIndex = 0 # Model, das den Test korrigiert
+from config.config_loader import get_llm_config
+from tools.jira_tool import fetch_user_story_details
 
-numberOfAttempts = 20
+MODULE_DIR = Path(__file__).resolve().parent
+PROMPTS_DIR = MODULE_DIR / "prompts"
 
-apiBase = modelsConfigData['apiBase']
-apiKey = modelsConfigData['apiKey']
+# Cargar prompts por defecto
+def load_prompt(filename: str) -> str:
+    path = PROMPTS_DIR / filename
+    if path.exists():
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ""
 
-writerModelInfo = modelsConfigData['models'][writerModelIndex]
-writerModel = writerModelInfo['model']
-writerModelTemperature = writerModelInfo['temperature']
-
-reviewerModelInfo = modelsConfigData['models'][writerModelIndex]
-reviewerModel = writerModelInfo['model']
-reviewerModelTemperature = writerModelInfo['temperature']
-
-llmWriter = ChatOpenAI(
-    model = writerModel,
-    openai_api_key = apiKey,
-    openai_api_base = apiBase,
-    temperature = writerModelTemperature
-)
-
-llmReviewer = ChatOpenAI(
-    model = reviewerModel,
-    openai_api_key = apiKey,
-    openai_api_base = apiBase,
-    temperature = reviewerModelTemperature
-)
-
-# state
 class AgentState(TypedDict):
-    messages: Annotated[List[BaseMessage],operator.add]
+    messages: Annotated[List[BaseMessage], operator.add]
     promptReviewer: str
-    userStory : str
-    iteration : int
+    userStory: str
+    iteration: int
     numberOfAttempts: int
-    navigationsLogik : str
+    navigationsLogik: str
     targetView: str
+    solution: Optional[str]
 
-# Nodes
-def writerNode(state: AgentState):
-    iteration = state.get('iteration', 0)
-    # print(f'iteration Writer = {iteration} ')
-    reponse = llmWriter.invoke(state['messages'])
-    return {'messages': [reponse], 'iteration': iteration + 1 }
+def create_agent_graph(llm_writer=None, llm_reviewer=None):
+    """
+    Crea y compila el grafo LangGraph para el Módulo 1.
+    """
+    if llm_writer is None or llm_reviewer is None:
+        llm_cfg = get_llm_config()
+        writer_cfg = llm_cfg["models"][0]
+        reviewer_cfg = llm_cfg["models"][1] if len(llm_cfg["models"]) > 1 else writer_cfg
+        
+        llm_writer = ChatOpenAI(
+            model=writer_cfg["model"],
+            openai_api_key=llm_cfg["apiKey"],
+            openai_api_base=llm_cfg["apiBase"],
+            temperature=writer_cfg["temperature"]
+        )
+        llm_reviewer = ChatOpenAI(
+            model=reviewer_cfg["model"],
+            openai_api_key=llm_cfg["apiKey"],
+            openai_api_base=llm_cfg["apiBase"],
+            temperature=reviewer_cfg["temperature"]
+        )
 
-def reviewerNode(state: AgentState):
-    lastMessageContent = state['messages'][-1].content
-    state['solution'] = lastMessageContent
-    userStory = state['userStory']
-    reviewInstruction = f'''
-        {state['promptReviewer']}
-        ### INPUT FÜR DIE ANALYSE: ###
-        - NAVIGATIONS LOGIK: {state['navigationsLogik']}
-        - {state['targetView']}
-        - USER STORY: {userStory}
-        - VORSCHLAG DES WRITERS: {lastMessageContent}
-    '''
-    reponse = llmReviewer.invoke([HumanMessage(content=reviewInstruction)])
-    iteration = state.get('iteration', 0)
-    # print(f'\n\nzu korrigieren ({iteration}): {reponse}\n\n')
-    return {'messages': [reponse]}
+    def writerNode(state: AgentState):
+        iteration = state.get('iteration', 0)
+        response = llm_writer.invoke(state['messages'])
+        return {'messages': [response], 'iteration': iteration + 1}
 
-# control logic
-def shouldContinue(state: AgentState):
-    lastMessageContent = state['messages'][-1].content.upper()
-    if 'ERLEDIG' in lastMessageContent:
-        print(f'Reviewer ist fertig')
-        return END
-    if state['iteration'] >= state['numberOfAttempts']:
-        print(f'Ende der Versuche ')
-        return END
-    return "writer"
+    def reviewerNode(state: AgentState):
+        lastMessageContent = state['messages'][-1].content
+        userStory = state['userStory']
+        reviewInstruction = f'''
+            {state['promptReviewer']}
+            ### INPUT FÜR DIE ANALYSE: ###
+            - NAVIGATIONS LOGIK: {state['navigationsLogik']}
+            - {state['targetView']}
+            - USER STORY: {userStory}
+            - VORSCHLAG DES WRITERS: {lastMessageContent}
+        '''
+        response = llm_reviewer.invoke([HumanMessage(content=reviewInstruction)])
+        return {'messages': [response]}
 
-workflow = StateGraph(AgentState)
-workflow.add_node('writer', writerNode)
-workflow.add_node('reviewer', reviewerNode)
-workflow.set_entry_point('writer')
-workflow.add_edge('writer', 'reviewer')
-workflow.add_conditional_edges(
-    'reviewer',
-    shouldContinue,
-    {
-        'writer':'writer',
-        END: END
+    def shouldContinue(state: AgentState):
+        lastMessageContent = state['messages'][-1].content.upper()
+        if 'ERLEDIG' in lastMessageContent or 'COMPLETED' in lastMessageContent:
+            return END
+        if state['iteration'] >= state['numberOfAttempts']:
+            return END
+        return "writer"
+
+    workflow = StateGraph(AgentState)
+    workflow.add_node('writer', writerNode)
+    workflow.add_node('reviewer', reviewerNode)
+    workflow.set_entry_point('writer')
+    workflow.add_edge('writer', 'reviewer')
+    workflow.add_conditional_edges(
+        'reviewer',
+        shouldContinue,
+        {
+            'writer': 'writer',
+            END: END
+        }
+    )
+
+    return workflow.compile()
+
+def run_test_writer_agent(
+    jira_issue_key: str = "PDNEU-1234",
+    target_view: str = "Prüfungsfeststellungen",
+    user_story_text: Optional[str] = None,
+    number_of_attempts: int = 5,
+    on_step_callback: Optional[Callable[[str, str], None]] = None,
+    mock_response: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Ejecuta el agente Módulo 1 (Writer + Reviewer) para generar Casos de Prueba.
+    Soporta callback para streaming a la CLI de Rich y mock_response para testing offline.
+    """
+    systemPromptText = load_prompt('testCaseWriter.md')
+    navigationsLogikText = load_prompt('navigation.md')
+    promptReviewerText = load_prompt('testCaseReviewer.md')
+
+    if not user_story_text:
+        us_data = fetch_user_story_details(jira_issue_key)
+        user_story_text = f"Title: {us_data.get('summary', '')}\nDescription: {us_data.get('description', '')}"
+
+    systemPrompt = SystemMessage(content=systemPromptText)
+    navigationsLogikPrompt = SystemMessage(content=navigationsLogikText)
+    userStoryPrompt = HumanMessage(content=f'USER STORY:\n{user_story_text}')
+    targetViewPromptText = f"die zu testende Maske ist '{target_view}'"
+
+    inputs = {
+        'messages': [systemPrompt, navigationsLogikPrompt, userStoryPrompt],
+        'promptReviewer': promptReviewerText,
+        'userStory': user_story_text,
+        'iteration': 0,
+        'numberOfAttempts': number_of_attempts,
+        'navigationsLogik': navigationsLogikText,
+        'targetView': targetViewPromptText,
+        'solution': None
     }
-)
 
-app = workflow.compile()
+    # Si se provee mock_response (para tests unitarios u offline)
+    if mock_response:
+        if on_step_callback:
+            on_step_callback('writer', mock_response)
+            on_step_callback('reviewer', 'ERLEDIGT')
+        return {
+            'success': True,
+            'messages': [{'node': 'writer', 'content': mock_response}],
+            'solution': mock_response
+        }
 
-with open('prompt/testCaseWriter.md', 'r', encoding='utf-8') as file:
-    systemPromptText = file.read()
-with open('prompt/navigation.md', 'r', encoding='utf-8') as file:
-    navigationsLogikText = file.read()
-with open('prompt/us.txt', 'r', encoding='utf-8') as file:
-    userStoryText = file.read()
-with open('prompt/testCaseReviewer.md', 'r', encoding='utf-8') as file:
-    promptReviewerText = file.read()
+    app = create_agent_graph()
+    list_of_messages = []
+    solution_content = ""
 
-systemPrompt = SystemMessage(content=systemPromptText)
-navigationsLogikPrompt = SystemMessage(content=navigationsLogikText)
-targetViewPrompt = HumanMessage(content=f"die zu testende Maske ist 'Prüfungsfeststellungen'")
-userStoryPrompt = HumanMessage(content=f'USER STORY: {userStoryText}')
+    for event in app.stream(inputs):
+        for node, value in event.items():
+            for msg in value['messages']:
+                node_content = msg.content
+                list_of_messages.append({'node': node, 'content': node_content})
+                
+                if on_step_callback:
+                    on_step_callback(node, node_content)
 
-inputs = {
-    'messages' : [
-        systemPrompt,
-        navigationsLogikPrompt,
-        userStoryPrompt
-    ],
-    'promptReviewer': promptReviewerText,
-    'userStory': userStoryText,
-    'iteration': 0,
-    'numberOfAttempts' : numberOfAttempts,
-    'navigationsLogik' :  navigationsLogikText,
-    'targetView': f"die zu testende Maske ist 'Prüfungsfeststellungen'"
-}
+                if 'ERLEDIG' in node_content.upper() or 'COMPLETED' in node_content.upper():
+                    if len(list_of_messages) >= 2:
+                        solution_content = list_of_messages[-2]['content']
 
-import json
-solution = 0
-listOfMessages = []
-for event in app.stream(inputs):
-    print('im doning your work also wait ;)')
-    for node, value in event.items():
-        for msg in value['messages']:
-            neu_content = {
-                'node': node,
-                'content': msg.content
-            }
-            listOfMessages.append(neu_content)
-            if 'ERLEDIG' in msg.content:
-                solution = listOfMessages.index(neu_content)
-            
-with open('steps.json', 'w', encoding='utf-8') as f:
-    jsondata = json.loads(listOfMessages[solution - 1 if solution else 0]['content'].replace('```json','').replace('```',''))
-    json.dump(jsondata, f, ensure_ascii=False, indent=4)
-print(f'############# FERTIG\n\n')
+    if not solution_content and list_of_messages:
+        solution_content = list_of_messages[-1]['content']
+
+    return {
+        'success': True,
+        'messages': list_of_messages,
+        'solution': solution_content
+    }
+
+if __name__ == '__main__':
+    res = run_test_writer_agent(mock_response='```json\n{"test": "ok"}\n```')
+    print("Mock Output:", res['solution'])

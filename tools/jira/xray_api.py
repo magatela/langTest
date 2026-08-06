@@ -8,7 +8,10 @@ kommt aus :class:`base_api.RestAPIClient`.
 
 from __future__ import annotations
 from typing import Any, Dict
-from base_api import RestAPIClient
+try:
+    from .base_api import RestAPIClient
+except ImportError:
+    from base_api import RestAPIClient
 
 class XrayAPI(RestAPIClient):
     """Client für Xray (Raven)."""
@@ -189,14 +192,18 @@ class XrayAPI(RestAPIClient):
         return response.ok
 
 if __name__ == '__main__':
-   
-    from meinLogin import JiraLogin
+    try:
+        from meinLogin import JiraLogin
+    except ImportError:
+        from config.config_loader import get_jira_credentials
+        JiraLogin = get_jira_credentials()
+        
     xray = XrayAPI(
         base_url=JiraLogin['base_url'],
         prefix=JiraLogin['prefix'],
         user=JiraLogin['user'],
         password=JiraLogin['password'],
-        proxies=JiraLogin['proxies'],
+        proxies=JiraLogin.get('proxies'),
     )
     
     

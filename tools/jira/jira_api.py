@@ -10,7 +10,10 @@ from __future__ import annotations
 from typing import Any, Dict
 import json
 
-from base_api import RestAPIClient
+try:
+    from .base_api import RestAPIClient
+except ImportError:
+    from base_api import RestAPIClient
 
 class JiraAPI(RestAPIClient):
     """
@@ -32,6 +35,7 @@ class JiraAPI(RestAPIClient):
     ) -> None:
         super().__init__(base_url, user, password, proxies=proxies)
         self._prefix = prefix
+
 
     # --------------------------------------------------------------- #
     # Util                                                            #
@@ -193,7 +197,12 @@ class JiraAPI(RestAPIClient):
         return self.get(f"{self.API_PATH}project")
 
 if __name__ == '__main__':
-    from meinLogin import JiraLogin
+    try:
+        from meinLogin import JiraLogin
+    except ImportError:
+        from config.config_loader import get_jira_credentials
+        JiraLogin = get_jira_credentials()
+        
     jira = JiraAPI(
         base_url=JiraLogin['base_url'],
         prefix=JiraLogin['prefix'],

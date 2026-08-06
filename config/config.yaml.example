@@ -1,0 +1,18 @@
+# Configuración de Modelos LLM y Jira (Plantilla de ejemplo)
+apiBase: "https://api.openai.com/v1"
+apiKey: "TU_API_KEY_AQUI"
+
+models:
+  - model: "gpt-4o"
+    temperature: 0.2
+  - model: "gpt-4o"
+    temperature: 0.1
+
+jira:
+  base_url: "https://jira.tu-organizacion.com/"
+  prefix: "PDNEU"
+  user: "tu_usuario@email.com"
+  password: "tu_password_o_api_token"
+  proxies:
+    http: "http://proxy-server:8080"
+    https: "http://proxy-server:8080"

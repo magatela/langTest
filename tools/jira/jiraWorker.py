@@ -1,7 +1,23 @@
-from jira_api import JiraAPI
-from xray_api import XrayAPI
-import json, re, pyperclip
-from meinLogin import JiraLogin
+import json
+import re
+
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
+
+try:
+    from .jira_api import JiraAPI
+    from .xray_api import XrayAPI
+except ImportError:
+    from jira_api import JiraAPI
+    from xray_api import XrayAPI
+
+try:
+    from meinLogin import JiraLogin
+except ImportError:
+    from config.config_loader import get_jira_credentials
+    JiraLogin = get_jira_credentials()
 
 jira = JiraAPI(
     base_url=JiraLogin['base_url'],
@@ -17,8 +33,9 @@ xray = XrayAPI(
     password=JiraLogin['password'],
 )
 
-xray.set_proxies(JiraLogin['proxies'])  
-jira.set_proxies(JiraLogin['proxies'])   
+if JiraLogin.get('proxies'):
+    xray.set_proxies(JiraLogin['proxies'])  
+    jira.set_proxies(JiraLogin['proxies'])   
 
 def saveResponse(response):
     with open('response.json', 'w', encoding='utf-8') as f:
@@ -483,7 +500,8 @@ def updateBug(bugKey, test_execution, testKey, storyKey, pdgo_Version):
 # bugKey, test_execution, testKey, storyKey, pdgo_Version = createBug(12994, 27, 33)
 # updateBug(bugKey, test_execution, testKey, storyKey, pdgo_Version)
 
-exportResults(15345, 3454)  
+if __name__ == '__main__':
+    exportResults(15345, 3454)  
 # updateStepStatus(14765, 1461, 1)
 
 # with open('response.json', 'w', encoding='utf-8') as f:

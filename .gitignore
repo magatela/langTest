@@ -1,0 +1,22 @@
+# Python
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment and Secrets
+.env
+config/config.yaml
+
+# Node.js
+node_modules/
+ts_repl_server/node_modules/
+
+# Generated Outputs
+steps.json
+response.json
+*.log
