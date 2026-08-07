@@ -106,16 +106,16 @@ def normalize_issue_key(key: Union[str, int], prefix: str = DEFAULT_PROJECT_KEY)
     Formatea y normaliza una clave de Jira para garantizar que contenga el prefijo correcto.
 
     Args:
-        key: ID o Clave del Issue (ej. '1234' o 'PDNEU-1234').
-        prefix: Prefijo del proyecto en Jira.
+        key: ID o Clave del Issue (ej. '1234' o 'PDNEU-1234' o 'QA-99').
+        prefix: Prefijo por defecto del proyecto en Jira.
 
     Returns:
-        str: Clave normalizada (ej. 'PDNEU-1234').
+        str: Clave normalizada (ej. 'PDNEU-1234' o 'QA-99').
     """
     str_key = str(key).strip()
-    if not str_key.startswith(prefix):
-        return f"{prefix}-{str_key}"
-    return str_key
+    if "-" in str_key:
+        return str_key
+    return f"{prefix}-{str_key}"
 
 
 def clean_formatting_text(text: str) -> str:

@@ -1,6 +1,7 @@
 # modules/module_1_test_writer/agent.py
 import json
 import operator
+import re
 from pathlib import Path
 from typing import TypedDict, Annotated, List, Optional, Callable, Dict, Any
 
@@ -9,7 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
 from langgraph.graph import StateGraph, END
 
 from config.config_loader import get_llm_config
-from tools.jira_tool import fetch_user_story_details
+from tools.jira_tool import fetch_user_story_details, normalize_issue_key
 
 MODULE_DIR = Path(__file__).resolve().parent
 PROMPTS_DIR = MODULE_DIR / "prompts"
@@ -21,6 +22,23 @@ def load_prompt(filename: str) -> str:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
     return ""
+
+def extract_jira_issue_references(text: str, exclude_key: Optional[str] = None) -> List[str]:
+    """
+    Analiza un texto para identificar patrones de claves de Jira (ej. PDNEU-1234).
+    Devuelve una lista única de claves encontradas excluyendo opcionalmente la clave principal.
+    """
+    if not text:
+        return []
+    matches = re.findall(r'\b[A-Z][A-Z0-9]+-\d+\b', text)
+    unique_keys = []
+    norm_exclude = normalize_issue_key(exclude_key) if exclude_key else None
+    
+    for m in matches:
+        norm_m = normalize_issue_key(m)
+        if norm_m != norm_exclude and norm_m not in unique_keys:
+            unique_keys.append(norm_m)
+    return unique_keys
 
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
@@ -103,11 +121,15 @@ def run_test_writer_agent(
     user_story_text: Optional[str] = None,
     number_of_attempts: int = 5,
     on_step_callback: Optional[Callable[[str, str], None]] = None,
+    on_references_found_callback: Optional[Callable[[List[str]], List[str]]] = None,
+    selected_referenced_keys: Optional[List[str]] = None,
     mock_response: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Ejecuta el agente Módulo 1 (Writer + Reviewer) para generar Casos de Prueba.
-    Soporta callback para streaming a la CLI de Rich y mock_response para testing offline.
+    
+    Analiza el texto de la User Story para detectar referencias a otros issues de Jira.
+    Si encuentra referencias, solicita al usuario cuáles deben tomarse en cuenta.
     """
     systemPromptText = load_prompt('testCaseWriter.md')
     navigationsLogikText = load_prompt('navigation.md')
@@ -116,6 +138,28 @@ def run_test_writer_agent(
     if not user_story_text:
         us_data = fetch_user_story_details(jira_issue_key)
         user_story_text = f"Title: {us_data.get('summary', '')}\nDescription: {us_data.get('description', '')}"
+
+    # Step 1: Analizar el texto para buscar referencias a otros issues de Jira
+    detected_references = extract_jira_issue_references(user_story_text, exclude_key=jira_issue_key)
+    selected_references: List[str] = []
+
+    if detected_references:
+        if on_references_found_callback:
+            selected_references = on_references_found_callback(detected_references)
+        elif selected_referenced_keys is not None:
+            selected_references = selected_referenced_keys
+
+    # Step 2: Cargar el contenido de las referencias seleccionadas y anexarlo como contexto adicional
+    if selected_references:
+        ref_blocks = []
+        for ref_key in selected_references:
+            ref_details = fetch_user_story_details(ref_key)
+            ref_blocks.append(
+                f"### REFERENCED JIRA ISSUE DETAILS ({ref_key}) ###\n"
+                f"Title: {ref_details.get('summary', '')}\n"
+                f"Description: {ref_details.get('description', '')}"
+            )
+        user_story_text += "\n\n" + "\n\n".join(ref_blocks)
 
     systemPrompt = SystemMessage(content=systemPromptText)
     navigationsLogikPrompt = SystemMessage(content=navigationsLogikText)
@@ -141,7 +185,10 @@ def run_test_writer_agent(
         return {
             'success': True,
             'messages': [{'node': 'writer', 'content': mock_response}],
-            'solution': mock_response
+            'solution': mock_response,
+            'detected_references': detected_references,
+            'selected_references': selected_references,
+            'final_user_story_text': user_story_text
         }
 
     app = create_agent_graph()
@@ -167,7 +214,10 @@ def run_test_writer_agent(
     return {
         'success': True,
         'messages': list_of_messages,
-        'solution': solution_content
+        'solution': solution_content,
+        'detected_references': detected_references,
+        'selected_references': selected_references,
+        'final_user_story_text': user_story_text
     }
 
 if __name__ == '__main__':

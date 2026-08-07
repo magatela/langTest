@@ -48,6 +48,36 @@ def menu_option_1_test_writer():
     if is_offline:
         console.print("[bold yellow]ℹ️ Ejecutando en modo sin conexión / Mock data.[/bold yellow]")
 
+    # Detección e interacción de referencias a otros issues de Jira
+    raw_us_text = f"Title: {us_details.get('summary', '')}\nDescription: {us_details.get('description', '')}"
+    from modules.module_1_test_writer.agent import extract_jira_issue_references
+    detected_refs = extract_jira_issue_references(raw_us_text, exclude_key=jira_key)
+    selected_refs = []
+
+    if detected_refs:
+        console.print(Panel(
+            f"[bold yellow]🔍 Referencias a otros issues de Jira detectadas en el texto:[/bold yellow]\n\n" +
+            ", ".join([f"[cyan]{ref}[/cyan]" for ref in detected_refs]),
+            title="🔗 Referencias Cruzadas Detectadas",
+            border_style="yellow"
+        ))
+        
+        user_input_refs = Prompt.ask(
+            "[yellow]¿Cuáles referencias deseas incluir en la generación del test? (Ingresa las claves separadas por coma, 'todas'/'all', o presiona Enter para ninguna)[/yellow]",
+            default="todas"
+        ).strip()
+
+        if user_input_refs.lower() in ["todas", "all", "t"]:
+            selected_refs = detected_refs
+        elif user_input_refs:
+            entered_list = [r.strip().upper() for r in user_input_refs.split(",") if r.strip()]
+            selected_refs = [r for r in entered_list if r in detected_refs or f"PDNEU-{r}" in detected_refs]
+            # Normalizar prefijos si se ingresaron solo números
+            selected_refs = [r if r.startswith("PDNEU-") else f"PDNEU-{r}" for r in selected_refs]
+
+        if selected_refs:
+            console.print(f"[bold green]✓ Se tomarán en cuenta las siguientes referencias:[/bold green] {', '.join(selected_refs)}")
+
     if not Confirm.ask("¿Deseas iniciar la generación con LangGraph?", default=True):
         return
 
@@ -91,7 +121,8 @@ def menu_option_1_test_writer():
         result = run_test_writer_agent(
             jira_issue_key=jira_key,
             target_view=target_view,
-            user_story_text=f"Summary: {us_details.get('summary')}\nDesc: {us_details.get('description')}",
+            user_story_text=raw_us_text,
+            selected_referenced_keys=selected_refs,
             on_step_callback=step_callback,
             mock_response=mock_resp
         )
