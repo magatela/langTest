@@ -1,6 +1,6 @@
 # main.py
 """
-CLI Interactivo y Orquestador Principal para qa_agent_system.
+CLI Interactivo y Orquestador Principal para langTest.
 Proporciona una interfaz rica en consola (Rich) con renderizado Markdown.
 """
 
@@ -41,7 +41,7 @@ def menu_option_1_test_writer():
     table.add_column("Campo", style="cyan")
     table.add_column("Valor", style="white")
     table.add_row("Título", str(us_details.get("summary", "")))
-    table.add_row("Descripción", str(us_details.get("description", ""))[:100] + "...")
+    table.add_row("Descripción", str(us_details.get("description", ""))[:500] + "...")
     console.print(table)
 
     is_offline = us_details.get("is_offline", False)
