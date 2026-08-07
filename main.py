@@ -48,32 +48,36 @@ def menu_option_1_test_writer():
     if is_offline:
         console.print("[bold yellow]ℹ️ Ejecutando en modo sin conexión / Mock data.[/bold yellow]")
 
-    # Detección e interacción de referencias a otros issues de Jira
+    # Análisis y recomendaciones de referencias generadas por el LLM
     raw_us_text = f"Title: {us_details.get('summary', '')}\nDescription: {us_details.get('description', '')}"
-    from modules.module_1_test_writer.agent import extract_jira_issue_references
-    detected_refs = extract_jira_issue_references(raw_us_text, exclude_key=jira_key)
+    from modules.module_1_test_writer.agent import analyze_and_recommend_jira_references
+
+    console.print("\n[dim]Analizando texto con el LLM para evaluar recomendaciones de referencias de Jira...[/dim]")
+    recommended_refs = analyze_and_recommend_jira_references(raw_us_text, exclude_key=jira_key)
     selected_refs = []
 
-    if detected_refs:
-        console.print(Panel(
-            f"[bold yellow]🔍 Referencias a otros issues de Jira detectadas en el texto:[/bold yellow]\n\n" +
-            ", ".join([f"[cyan]{ref}[/cyan]" for ref in detected_refs]),
-            title="🔗 Referencias Cruzadas Detectadas",
-            border_style="yellow"
-        ))
-        
+    if recommended_refs:
+        ref_table = Table(title="🤖 Recomendación del LLM: Referencias de Jira Sugeridas", border_style="yellow")
+        ref_table.add_column("Issue Key", style="cyan", no_wrap=True)
+        ref_table.add_column("Razón / Recomendación del LLM", style="white")
+
+        for item in recommended_refs:
+            ref_table.add_row(item.get("key", ""), item.get("reason", ""))
+
+        console.print(ref_table)
+
         user_input_refs = Prompt.ask(
             "[yellow]¿Cuáles referencias deseas incluir en la generación del test? (Ingresa las claves separadas por coma, 'todas'/'all', o presiona Enter para ninguna)[/yellow]",
             default="todas"
         ).strip()
 
+        all_keys = [item["key"] for item in recommended_refs]
         if user_input_refs.lower() in ["todas", "all", "t"]:
-            selected_refs = detected_refs
+            selected_refs = all_keys
         elif user_input_refs:
             entered_list = [r.strip().upper() for r in user_input_refs.split(",") if r.strip()]
-            selected_refs = [r for r in entered_list if r in detected_refs or f"PDNEU-{r}" in detected_refs]
-            # Normalizar prefijos si se ingresaron solo números
-            selected_refs = [r if r.startswith("PDNEU-") else f"PDNEU-{r}" for r in selected_refs]
+            selected_refs = [r if "-" in r else f"PDNEU-{r}" for r in entered_list]
+            selected_refs = [r for r in selected_refs if r in all_keys or any(r == k for k in all_keys)]
 
         if selected_refs:
             console.print(f"[bold green]✓ Se tomarán en cuenta las siguientes referencias:[/bold green] {', '.join(selected_refs)}")

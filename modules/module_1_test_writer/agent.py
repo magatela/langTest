@@ -23,22 +23,93 @@ def load_prompt(filename: str) -> str:
             return f.read()
     return ""
 
-def extract_jira_issue_references(text: str, exclude_key: Optional[str] = None) -> List[str]:
+def analyze_and_recommend_jira_references(
+    user_story_text: str,
+    exclude_key: Optional[str] = None,
+    llm: Optional[Any] = None,
+    mock_recommendations: Optional[List[Dict[str, str]]] = None
+) -> List[Dict[str, str]]:
     """
-    Analiza un texto para identificar patrones de claves de Jira (ej. PDNEU-1234).
-    Devuelve una lista única de claves encontradas excluyendo opcionalmente la clave principal.
+    Analiza el texto de la User Story utilizando el LLM para identificar referencias a otros issues de Jira
+    y generar una recomendación explicativa de por qué serían útiles para redactar los casos de prueba.
+
+    Returns:
+        List[Dict[str, str]]: Lista de diccionarios con claves 'key' y 'reason'.
+        Ejemplo: [{'key': 'PDNEU-4567', 'reason': 'Define el diálogo modal de feststellungen'}]
     """
-    if not text:
+    if mock_recommendations is not None:
+        return mock_recommendations
+
+    if not user_story_text:
         return []
-    matches = re.findall(r'\b[A-Z][A-Z0-9]+-\d+\b', text)
-    unique_keys = []
-    norm_exclude = normalize_issue_key(exclude_key) if exclude_key else None
-    
+
+    norm_exclude = normalize_issue_key(exclude_key) if exclude_key else ""
+
+    analysis_prompt = f"""Du bist ein leitender QA-Analyst. Analysiere den folgenden User-Story-Text und identifiziere alle Erwähnungen oder Verweise auf andere Jira-Issues (z.B. PDNEU-1234, QA-56, FT-789) oder relevante Spezifikationen.
+
+Für jeden gefundenen Schlüssel (außer {norm_exclude}):
+1. Extrahiere den Schlüssel (z.B. "PDNEU-4567").
+2. Erkläre kurz auf Deutsch oder Spanisch, WARUM dieser Verweis für die Erstellung der Testfälle nützlich ist.
+
+Gib deine Antwort AUSSCHLIESSLICH im JSON-Format wie folgt zurück:
+{{
+  "references": [
+    {{
+      "key": "PDNEU-XXXX",
+      "reason": "Erklärung warum nützlich"
+    }}
+  ]
+}}
+
+Wenn keine Verweise vorhanden sind, gib {{"references": []}} zurück.
+
+USER STORY TEXT:
+{user_story_text}
+"""
+
+    if llm is None:
+        try:
+            llm_cfg = get_llm_config()
+            model_name = llm_cfg["models"][0]["model"]
+            llm = ChatOpenAI(
+                model=model_name,
+                openai_api_key=llm_cfg["apiKey"],
+                openai_api_base=llm_cfg["apiBase"],
+                temperature=0.0
+            )
+        except Exception:
+            llm = None
+
+    if llm is not None:
+        try:
+            response = llm.invoke([HumanMessage(content=analysis_prompt)])
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            clean_content = re.sub(r'```(?:json)?\s*', '', str(content)).strip('` \n')
+            data = json.loads(clean_content)
+            raw_refs = data.get("references", [])
+            
+            valid_refs = []
+            for item in raw_refs:
+                key = normalize_issue_key(item.get("key", ""))
+                reason = item.get("reason", "Recomendado por el LLM")
+                if key and key != norm_exclude and not any(r['key'] == key for r in valid_refs):
+                    valid_refs.append({"key": key, "reason": reason})
+            return valid_refs
+        except Exception:
+            pass
+
+    # Fallback determinista en caso de sin conexión o error de formateo JSON del LLM
+    matches = re.findall(r'\b[A-Z][A-Z0-9]+-\d+\b', user_story_text)
+    fallback_refs = []
     for m in matches:
         norm_m = normalize_issue_key(m)
-        if norm_m != norm_exclude and norm_m not in unique_keys:
-            unique_keys.append(norm_m)
-    return unique_keys
+        if norm_m != norm_exclude and not any(r['key'] == norm_m for r in fallback_refs):
+            fallback_refs.append({
+                "key": norm_m,
+                "reason": f"Referencia detectada en el texto ({norm_m})"
+            })
+    return fallback_refs
 
 def sanitize_messages(messages: List[Any]) -> List[BaseMessage]:
     """
@@ -160,15 +231,16 @@ def run_test_writer_agent(
     user_story_text: Optional[str] = None,
     number_of_attempts: int = 5,
     on_step_callback: Optional[Callable[[str, str], None]] = None,
-    on_references_found_callback: Optional[Callable[[List[str]], List[str]]] = None,
+    on_references_found_callback: Optional[Callable[[List[Dict[str, str]]], List[str]]] = None,
     selected_referenced_keys: Optional[List[str]] = None,
+    mock_recommendations: Optional[List[Dict[str, str]]] = None,
     mock_response: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Ejecuta el agente Módulo 1 (Writer + Reviewer) para generar Casos de Prueba.
     
-    Analiza el texto de la User Story para detectar referencias a otros issues de Jira.
-    Si encuentra referencias, solicita al usuario cuáles deben tomarse en cuenta.
+    Analiza la User Story usando el LLM para recomendar referencias a otros issues de Jira.
+    Solicita al usuario cuáles referencias recomendadas deben incluirse para la generación.
     """
     systemPromptText = load_prompt('testCaseWriter.md')
     navigationsLogikText = load_prompt('navigation.md')
@@ -178,13 +250,17 @@ def run_test_writer_agent(
         us_data = fetch_user_story_details(jira_issue_key)
         user_story_text = f"Title: {us_data.get('summary', '')}\nDescription: {us_data.get('description', '')}"
 
-    # Step 1: Analizar el texto para buscar referencias a otros issues de Jira
-    detected_references = extract_jira_issue_references(user_story_text, exclude_key=jira_issue_key)
+    # Step 1: Analizar el texto con el LLM para obtener recomendaciones explicativas de referencias
+    recommended_references = analyze_and_recommend_jira_references(
+        user_story_text,
+        exclude_key=jira_issue_key,
+        mock_recommendations=mock_recommendations
+    )
     selected_references: List[str] = []
 
-    if detected_references:
+    if recommended_references:
         if on_references_found_callback:
-            selected_references = on_references_found_callback(detected_references)
+            selected_references = on_references_found_callback(recommended_references)
         elif selected_referenced_keys is not None:
             selected_references = selected_referenced_keys
 
@@ -225,7 +301,7 @@ def run_test_writer_agent(
             'success': True,
             'messages': [{'node': 'writer', 'content': mock_response}],
             'solution': mock_response,
-            'detected_references': detected_references,
+            'recommended_references': recommended_references,
             'selected_references': selected_references,
             'final_user_story_text': user_story_text
         }
@@ -255,7 +331,7 @@ def run_test_writer_agent(
         'success': True,
         'messages': list_of_messages,
         'solution': solution_content,
-        'detected_references': detected_references,
+        'recommended_references': recommended_references,
         'selected_references': selected_references,
         'final_user_story_text': user_story_text
     }
