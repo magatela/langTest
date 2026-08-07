@@ -78,3 +78,38 @@ def get_llm_config() -> dict:
             pass
 
     return llm_config
+
+
+def get_playwright_config() -> dict:
+    """
+    Obtiene la configuración de Playwright y ejecutable Chrome desde config/config.yaml o .env.
+    """
+    config_file = ROOT_DIR / "config" / "config.yaml"
+
+    use_custom_chrome = os.getenv("PLAYWRIGHT_USE_CUSTOM_CHROME", "false").lower() in ["true", "1", "yes"]
+    chrome_path = os.getenv("PLAYWRIGHT_CHROME_PATH", "")
+    headless = os.getenv("PLAYWRIGHT_HEADLESS", "false").lower() in ["true", "1", "yes"]
+    results_dir = os.getenv("PLAYWRIGHT_RESULTS_DIR", str(ROOT_DIR / "results"))
+
+    pw_config = {
+        "use_custom_chrome_path": use_custom_chrome,
+        "chrome_path": chrome_path,
+        "headless": headless,
+        "results_dir": results_dir
+    }
+
+    if config_file.exists():
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+                if data and "playwright" in data:
+                    p_data = data["playwright"]
+                    pw_config["use_custom_chrome_path"] = bool(p_data.get("use_custom_chrome_path", pw_config["use_custom_chrome_path"]))
+                    pw_config["chrome_path"] = str(p_data.get("chrome_path", pw_config["chrome_path"]))
+                    pw_config["headless"] = bool(p_data.get("headless", pw_config["headless"]))
+                    pw_config["results_dir"] = str(p_data.get("results_dir", pw_config["results_dir"]))
+        except Exception:
+            pass
+
+    return pw_config
+

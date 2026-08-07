@@ -1,4 +1,4 @@
-# Configuración de Modelos LLM y Jira (Plantilla de ejemplo)
+# Configuración de Modelos LLM, Jira y Playwright (Plantilla de ejemplo)
 apiBase: "https://api.openai.com/v1"
 apiKey: "TU_API_KEY_AQUI"
 
@@ -16,3 +16,9 @@ jira:
   proxies:
     http: "http://proxy-server:8080"
     https: "http://proxy-server:8080"
+
+playwright:
+  use_custom_chrome_path: false
+  chrome_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  headless: false
+  results_dir: "./results"

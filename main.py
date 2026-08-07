@@ -139,13 +139,42 @@ def menu_option_1_test_writer():
 
 def menu_option_2_repl_ts():
     console.print(Rule("[bold green]Módulo 2: Entorno TypeScript REPL & Playwright Runner[/bold green]"))
-    repl_path = Path(__file__).parent / "ts_repl_server" / "package.json"
-    if repl_path.exists():
-        console.print("[cyan]Servidor REPL de TypeScript detectado en `ts_repl_server/`.[/cyan]")
-        console.print("[dim]Para iniciar el runner de TypeScript ejecuta en tu terminal:[/dim]")
-        console.print("[yellow]  cd ts_repl_server && npm install && npx ts-node repl/repl.ts[/yellow]\n")
-    else:
+    repl_dir = Path(__file__).parent / "ts_repl_server"
+    if not repl_dir.exists():
         console.print("[red]Directorio ts_repl_server no encontrado.[/red]")
+        return
+
+    console.print("[cyan]Servidor REPL de TypeScript detectado en `ts_repl_server/`.[/cyan]")
+    console.print("  [bold white]1.[/bold white] 🖥️ Iniciar REPL Interactivo Aislado (Modo Usuario Humano)")
+    console.print("  [bold white]2.[/bold white] 🤖 Probar Puente IPC de Agentes (`TSPlaywrightREPLBridge`)")
+
+    sub_choice = Prompt.ask("\n[bold yellow]Selecciona una opción[/bold yellow]", choices=["1", "2"], default="1")
+
+    if sub_choice == "1":
+        console.print("\n[dim]Iniciando REPL en subproceso de consola interactiva...[/dim]\n")
+        try:
+            npx_cmd = "npx.cmd" if sys.platform == "win32" else "npx"
+            subprocess.run([npx_cmd, "tsx", "./repl/repl.ts"], cwd=str(repl_dir))
+        except Exception as e:
+            console.print(f"[red]Error al iniciar REPL interactivo:[/red] {e}")
+    elif sub_choice == "2":
+        console.print("\n[dim]Iniciando prueba del puente IPC desde Python...[/dim]\n")
+        from modules.module_2_browser_repl.ts_repl_bridge import TSPlaywrightREPLBridge
+        bridge = TSPlaywrightREPLBridge()
+        try:
+            if bridge.start():
+                console.print("[bold green]✓ Servidor REPL IPC iniciado y listo.[/bold green]")
+                snippet = Prompt.ask(
+                    "[yellow]Ingresa un código TypeScript para evaluar[/yellow]",
+                    default="console.log('Hola desde el Agente Python'); await page.title();"
+                )
+                res = bridge.eval_code(snippet)
+                console.print(Panel(json.dumps(res, indent=2, ensure_ascii=False), title="Respuesta del Servidor REPL", border_style="cyan"))
+                bridge.stop()
+            else:
+                console.print("[bold red]❌ No se pudo conectar al servidor REPL IPC.[/bold red]")
+        except Exception as e:
+            console.print(f"[bold red]❌ Error al comunicarse con el REPL IPC:[/bold red] {e}")
 
 def menu_option_3_test_coder():
     console.print(Rule("[bold green]Módulo 3: Conversor Codegen -> Test TypeScript[/bold green]"))

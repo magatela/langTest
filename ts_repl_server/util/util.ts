@@ -1,7 +1,8 @@
 import { promises as fs } from "fs";
 import path from 'path';
-import type { Page } from "playwright"
-import  stripAnsi from "strip-ansi"
+import type { Page } from "playwright";
+import stripAnsi from "strip-ansi";
+import { getPlaywrightConfig } from "./configLoader.ts";
 
 export class ResultWriter {
     results: {[key:string]: any} = {};
@@ -13,8 +14,9 @@ export class ResultWriter {
         this.page = page;
         this.results.testKey = test_id;
         this.results.status = null;
-	    this.results.steps = []
-        this.base_path = path.join('C:','Users','t011669','Documents','Resultados', test_id);
+        this.results.steps = [];
+        const pwConfig = getPlaywrightConfig();
+        this.base_path = path.resolve(pwConfig.results_dir, test_id);
     }
     
     setTestStatus(status:string){
