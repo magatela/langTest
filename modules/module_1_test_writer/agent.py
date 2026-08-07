@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TypedDict, Annotated, List, Optional, Callable, Dict, Any
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 from langgraph.graph import StateGraph, END
 
 from config.config_loader import get_llm_config
@@ -39,6 +39,31 @@ def extract_jira_issue_references(text: str, exclude_key: Optional[str] = None) 
         if norm_m != norm_exclude and norm_m not in unique_keys:
             unique_keys.append(norm_m)
     return unique_keys
+
+def sanitize_messages(messages: List[Any]) -> List[BaseMessage]:
+    """
+    Garantiza que todos los elementos de la lista de mensajes sean objetos BaseMessage válidos.
+    Sanea strings, dicts y otros tipos para prevenir errores del tipo:
+    'str' object has no attribute 'model_dump'.
+    """
+    clean_list: List[BaseMessage] = []
+    for msg in messages:
+        if isinstance(msg, BaseMessage):
+            clean_list.append(msg)
+        elif isinstance(msg, str):
+            clean_list.append(HumanMessage(content=msg))
+        elif isinstance(msg, dict):
+            role = msg.get("role", "user")
+            content = msg.get("content", str(msg))
+            if role == "system":
+                clean_list.append(SystemMessage(content=content))
+            elif role in ["assistant", "ai"]:
+                clean_list.append(AIMessage(content=content))
+            else:
+                clean_list.append(HumanMessage(content=content))
+        else:
+            clean_list.append(HumanMessage(content=str(msg)))
+    return clean_list
 
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
@@ -74,28 +99,42 @@ def create_agent_graph(llm_writer=None, llm_reviewer=None):
 
     def writerNode(state: AgentState):
         iteration = state.get('iteration', 0)
-        response = llm_writer.invoke(state['messages'])
+        messages = sanitize_messages(state.get('messages', []))
+        response = llm_writer.invoke(messages)
+        if isinstance(response, str):
+            response = AIMessage(content=response)
         return {'messages': [response], 'iteration': iteration + 1}
 
     def reviewerNode(state: AgentState):
-        lastMessageContent = state['messages'][-1].content
-        userStory = state['userStory']
+        messages = sanitize_messages(state.get('messages', []))
+        last_msg = messages[-1] if messages else HumanMessage(content="")
+        lastMessageContent = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+
+        userStory = state.get('userStory', '')
         reviewInstruction = f'''
-            {state['promptReviewer']}
+            {state.get('promptReviewer', '')}
             ### INPUT FÜR DIE ANALYSE: ###
-            - NAVIGATIONS LOGIK: {state['navigationsLogik']}
-            - {state['targetView']}
+            - NAVIGATIONS LOGIK: {state.get('navigationsLogik', '')}
+            - {state.get('targetView', '')}
             - USER STORY: {userStory}
             - VORSCHLAG DES WRITERS: {lastMessageContent}
         '''
         response = llm_reviewer.invoke([HumanMessage(content=reviewInstruction)])
+        if isinstance(response, str):
+            response = AIMessage(content=response)
         return {'messages': [response]}
 
     def shouldContinue(state: AgentState):
-        lastMessageContent = state['messages'][-1].content.upper()
-        if 'ERLEDIG' in lastMessageContent or 'COMPLETED' in lastMessageContent:
+        messages = sanitize_messages(state.get('messages', []))
+        last_msg = messages[-1] if messages else None
+        lastMessageContent = ""
+        if last_msg:
+            lastMessageContent = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+        
+        upper_content = str(lastMessageContent).upper()
+        if 'ERLEDIG' in upper_content or 'COMPLETED' in upper_content:
             return END
-        if state['iteration'] >= state['numberOfAttempts']:
+        if state.get('iteration', 0) >= state.get('numberOfAttempts', 5):
             return END
         return "writer"
 
@@ -167,7 +206,7 @@ def run_test_writer_agent(
     targetViewPromptText = f"die zu testende Maske ist '{target_view}'"
 
     inputs = {
-        'messages': [systemPrompt, navigationsLogikPrompt, userStoryPrompt],
+        'messages': sanitize_messages([systemPrompt, navigationsLogikPrompt, userStoryPrompt]),
         'promptReviewer': promptReviewerText,
         'userStory': user_story_text,
         'iteration': 0,
@@ -197,14 +236,15 @@ def run_test_writer_agent(
 
     for event in app.stream(inputs):
         for node, value in event.items():
-            for msg in value['messages']:
-                node_content = msg.content
+            msgs = value.get('messages', [])
+            for msg in msgs:
+                node_content = msg.content if hasattr(msg, 'content') else str(msg)
                 list_of_messages.append({'node': node, 'content': node_content})
                 
                 if on_step_callback:
                     on_step_callback(node, node_content)
 
-                if 'ERLEDIG' in node_content.upper() or 'COMPLETED' in node_content.upper():
+                if 'ERLEDIG' in str(node_content).upper() or 'COMPLETED' in str(node_content).upper():
                     if len(list_of_messages) >= 2:
                         solution_content = list_of_messages[-2]['content']
 
