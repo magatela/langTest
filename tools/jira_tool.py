@@ -1,9 +1,9 @@
 # tools/jira_tool.py
 """
-Módulo Unificado de Herramientas (Tools) para Integración de Jira y Xray.
+Unified Tools Module for Jira and Xray Integration.
 
-Proporciona funciones estructuradas, deterministas y tipadas para que los agentes de IA
-y la interfaz del sistema interactúen con la API REST de Jira Core y Xray Test Management.
+Provides structured, deterministic, and typed functions for AI agents
+and system interfaces to interact with Jira Core REST API and Xray Test Management.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from config.config_loader import get_jira_credentials
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# CONSTANTES DE CAMPOS PERSONALIZADOS (Jira / Xray Custom Fields)
+# CUSTOM FIELD CONSTANTS (Jira / Xray Custom Fields)
 # ==============================================================================
 DEFAULT_PROJECT_KEY: str = "PDNEU"
 CUSTOM_FIELD_BAUSTEIN: str = "customfield_10101"
@@ -49,7 +49,7 @@ DEFAULT_ASSIGNEE: Dict[str, str] = {"name": "user@email.de"}
 
 
 # ==============================================================================
-# GESTIÓN Y LAZY INITIALIZATION DE CLIENTES API
+# API CLIENT MANAGEMENT & LAZY INITIALIZATION
 # ==============================================================================
 _jira_client_instance: Optional[JiraAPI] = None
 _xray_client_instance: Optional[XrayAPI] = None
@@ -57,11 +57,11 @@ _xray_client_instance: Optional[XrayAPI] = None
 
 def get_jira_client() -> JiraAPI:
     """
-    Inicialización perezosa (Lazy initialization) del cliente JiraAPI.
-    Carga credenciales dinámicamente sin fallar en caso de falta de configuración.
+    Lazy initialization of the JiraAPI client.
+    Loads credentials dynamically without failing if configuration is missing.
 
     Returns:
-        JiraAPI: Instancia configurada del cliente de Jira.
+        JiraAPI: Configured instance of the Jira client.
     """
     global _jira_client_instance
     if _jira_client_instance is None:
@@ -79,10 +79,10 @@ def get_jira_client() -> JiraAPI:
 
 def get_xray_client() -> XrayAPI:
     """
-    Inicialización perezosa (Lazy initialization) del cliente XrayAPI.
+    Lazy initialization of the XrayAPI client.
 
     Returns:
-        XrayAPI: Instancia configurada del cliente de Xray.
+        XrayAPI: Configured instance of the Xray client.
     """
     global _xray_client_instance
     if _xray_client_instance is None:
@@ -99,18 +99,18 @@ def get_xray_client() -> XrayAPI:
 
 
 # ==============================================================================
-# FUNCIONES AUXILIARES DE UTILIDAD
+# UTILITY AUXILIARY FUNCTIONS
 # ==============================================================================
 def normalize_issue_key(key: Union[str, int], prefix: str = DEFAULT_PROJECT_KEY) -> str:
     """
-    Formatea y normaliza una clave de Jira para garantizar que contenga el prefijo correcto.
+    Formats and normalizes a Jira issue key to ensure it contains the correct prefix.
 
     Args:
-        key: ID o Clave del Issue (ej. '1234' o 'PDNEU-1234' o 'QA-99').
-        prefix: Prefijo por defecto del proyecto en Jira.
+        key: Issue ID or Key (e.g., '1234', 'PDNEU-1234', or 'QA-99').
+        prefix: Default Jira project prefix.
 
     Returns:
-        str: Clave normalizada (ej. 'PDNEU-1234' o 'QA-99').
+        str: Normalized issue key (e.g., 'PDNEU-1234' or 'QA-99').
     """
     str_key = str(key).strip()
     if "-" in str_key:
@@ -120,13 +120,13 @@ def normalize_issue_key(key: Union[str, int], prefix: str = DEFAULT_PROJECT_KEY)
 
 def clean_formatting_text(text: str) -> str:
     """
-    Elimina caracteres especiales de formato Wiki de Jira de un texto.
+    Removes special Jira Wiki formatting characters from a text string.
 
     Args:
-        text: Texto con formato Wiki o tags como {code}.
+        text: Text containing Jira Wiki formatting or tags like {code}.
 
     Returns:
-        str: Texto limpio.
+        str: Cleaned text string.
     """
     if not text:
         return ""
@@ -134,22 +134,74 @@ def clean_formatting_text(text: str) -> str:
 
 
 # ==============================================================================
-# HERRAMIENTAS AUTÓNOMAS (TOOLS)
+# AUTONOMOUS TOOLS
 # ==============================================================================
+def search_jira_by_jql(
+    jql_query: str, max_results: int = 50, mock_issues: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Any]:
+    """
+    Tool: Executes a search query using JQL (Jira Query Language) via Jira REST API.
+    Available to all agents in the system.
+
+    Args:
+        jql_query (str): JQL query string (e.g., 'project = "PDNEU" AND issuetype = Bug').
+        max_results (int): Maximum number of results to fetch.
+        mock_issues (Optional[List[Dict[str, Any]]]): Optional mock issues for offline testing.
+
+    Returns:
+        Dict[str, Any]: Result dictionary containing 'status', 'total', 'issues', and 'jql'.
+    """
+    if mock_issues is not None:
+        return {
+            "status": "success",
+            "jql": jql_query,
+            "total": len(mock_issues),
+            "issues": mock_issues[:max_results],
+        }
+
+    try:
+        jira = get_jira_client()
+        response = jira.jql_requests(jql_query, max_results=max_results)
+
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "status": "success",
+                "jql": jql_query,
+                "total": data.get("total", 0),
+                "issues": data.get("issues", []),
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"HTTP Error {response.status_code} while executing JQL",
+                "jql": jql_query,
+                "issues": [],
+            }
+    except Exception as e:
+        logger.error("Exception in search_jira_by_jql: %s", str(e))
+        return {
+            "status": "error",
+            "message": str(e),
+            "jql": jql_query,
+            "issues": [],
+        }
+
+
 def fetch_user_story_details(
     issue_key: str, mock_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Tool: Descarga la información clave de una User Story en Jira (título, descripción, criterios de aceptación).
+    Tool: Fetches key details of a User Story in Jira (summary, description, acceptance criteria).
 
     Args:
-        issue_key (str): Clave del Issue en Jira (ej. 'PDNEU-1234' o '1234').
-        mock_data (Optional[Dict[str, Any]]): Datos simulados opcionales para pruebas offline.
+        issue_key (str): Jira Issue Key (e.g., 'PDNEU-1234' or '1234').
+        mock_data (Optional[Dict[str, Any]]): Optional mock data for offline testing.
 
     Returns:
-        Dict[str, Any]: Estructura dict con el resultado de la consulta.
-            Status "success" contiene claves: key, summary, description, priority, status, raw.
-            Status "error" contiene claves: status, message, error_details.
+        Dict[str, Any]: Dictionary containing story details or error info.
+            Status "success" contains keys: key, summary, description, priority, issue_status, raw.
+            Status "error" contains keys: status, message, key, summary, description.
     """
     if mock_data:
         return {
@@ -182,19 +234,19 @@ def fetch_user_story_details(
         else:
             return {
                 "status": "error",
-                "message": f"Error HTTP {response.status_code} al consultar Jira",
+                "message": f"HTTP Error {response.status_code} while querying Jira",
                 "key": norm_key,
-                "summary": f"User Story {norm_key} (Sin conexión a Jira)",
-                "description": "Modo seguro: No se pudo obtener la descripción original.",
+                "summary": f"User Story {norm_key} (No connection to Jira)",
+                "description": "Safe mode: Original description could not be retrieved.",
             }
     except Exception as e:
-        logger.error("Excepción en fetch_user_story_details: %s", str(e))
+        logger.error("Exception in fetch_user_story_details: %s", str(e))
         return {
             "status": "error",
             "message": str(e),
             "key": issue_key,
-            "summary": f"User Story {issue_key} (Error de Conexión)",
-            "description": f"No se pudo completar la solicitud HTTP. Detalles: {str(e)}",
+            "summary": f"User Story {issue_key} (Connection Error)",
+            "description": f"HTTP request could not be completed. Details: {str(e)}",
             "is_offline": True,
         }
 
@@ -206,17 +258,17 @@ def update_test_description(
     sprint_id: Union[str, int],
 ) -> Dict[str, Any]:
     """
-    Tool: Actualiza la descripción, campos requeridos y versión de fijación de un Test Case en Jira
-    vinculándolo a una User Story y un Test Plan.
+    Tool: Updates description, required fields, and fix version of a Test Case in Jira,
+    linking it to a User Story and a Test Plan.
 
     Args:
-        user_story_id (Union[str, int]): ID o Clave de la US origen.
-        test_case_id (Union[str, int]): ID o Clave del Caso de Prueba a actualizar.
-        testplan_id (Union[str, int]): ID del Plan de Pruebas.
-        sprint_id (Union[str, int]): Número o identificador del Sprint.
+        user_story_id (Union[str, int]): Source User Story ID or Key.
+        test_case_id (Union[str, int]): Test Case ID or Key to update.
+        testplan_id (Union[str, int]): Test Plan ID.
+        sprint_id (Union[str, int]): Sprint number or identifier.
 
     Returns:
-        Dict[str, Any]: Resultado dict con estado de la operación.
+        Dict[str, Any]: Result dictionary with operation status.
     """
     try:
         jira = get_jira_client()
@@ -228,7 +280,7 @@ def update_test_description(
         if not us_resp.ok:
             return {
                 "status": "error",
-                "message": f"No se encontró la User Story {us_key}",
+                "message": f"User Story {us_key} not found",
             }
 
         us_data = us_resp.json()
@@ -264,18 +316,18 @@ def update_test_description(
         if update_resp.ok:
             return {
                 "status": "success",
-                "message": f"Test Case {tc_key} actualizado correctamente",
+                "message": f"Test Case {tc_key} successfully updated",
                 "test_case_key": tc_key,
                 "new_description": new_description,
             }
         else:
             return {
                 "status": "error",
-                "message": f"Error HTTP {update_resp.status_code} al actualizar {tc_key}",
+                "message": f"HTTP Error {update_resp.status_code} while updating {tc_key}",
                 "details": update_resp.text,
             }
     except Exception as e:
-        logger.error("Excepción en update_test_description: %s", str(e))
+        logger.error("Exception in update_test_description: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -283,29 +335,29 @@ def publish_test_case_to_jira(
     user_story_id: str, test_case_id: str, testplan_id: str, sprint_id: str
 ) -> Dict[str, Any]:
     """
-    Tool: Publica y sincroniza un Caso de Prueba con su Historia de Usuario en Jira.
+    Tool: Publishes and synchronizes a Test Case with its User Story in Jira.
 
     Args:
-        user_story_id (str): ID de la US en Jira.
-        test_case_id (str): ID del Caso de Prueba.
-        testplan_id (str): ID del Test Plan.
-        sprint_id (str): Número del Sprint.
+        user_story_id (str): User Story ID in Jira.
+        test_case_id (str): Test Case ID.
+        testplan_id (str): Test Plan ID.
+        sprint_id (str): Sprint number.
 
     Returns:
-        Dict[str, Any]: Resultado dict con estado y detalles de ejecución.
+        Dict[str, Any]: Result dictionary with execution status and details.
     """
     return update_test_description(user_story_id, test_case_id, testplan_id, sprint_id)
 
 
 def get_fach_test_keys(user_story_data: Dict[str, Any]) -> List[str]:
     """
-    Extrae los identificadores de Fach Test (FT) vinculados a una User Story.
+    Extracts Fach Test (FT) issue keys linked to a User Story.
 
     Args:
-        user_story_data (Dict[str, Any]): Datos JSON completos del Issue de la US.
+        user_story_data (Dict[str, Any]): Full JSON data of the User Story issue.
 
     Returns:
-        List[str]: Lista de Issue Keys de los Fach Tests encontrados.
+        List[str]: List of linked Fach Test issue keys found.
     """
     list_ft: List[str] = []
     issuelinks = user_story_data.get("fields", {}).get("issuelinks", [])
@@ -323,13 +375,13 @@ def get_fach_test_keys(user_story_data: Dict[str, Any]) -> List[str]:
 
 def get_test_steps_from_case(test_case_id: Union[str, int]) -> Dict[str, Any]:
     """
-    Tool: Obtiene los pasos de prueba estructurados de un Test Case o Fach Test.
+    Tool: Retrieves structured test steps from a Test Case or Fach Test in Jira/Xray.
 
     Args:
-        test_case_id (Union[str, int]): ID o Clave del Test Case en Jira.
+        test_case_id (Union[str, int]): Test Case ID or Key in Jira.
 
     Returns:
-        Dict[str, Any]: Estructura con la lista de pasos formateados (Action, Data, Expected Result).
+        Dict[str, Any]: Dictionary containing formatted test steps (Action, Data, Expected Result).
     """
     try:
         jira = get_jira_client()
@@ -339,7 +391,7 @@ def get_test_steps_from_case(test_case_id: Union[str, int]) -> Dict[str, Any]:
         if not resp.ok:
             return {
                 "status": "error",
-                "message": f"No se pudo consultar el Test Case {norm_key}",
+                "message": f"Could not query Test Case {norm_key}",
             }
 
         data = resp.json()
@@ -364,19 +416,19 @@ def get_test_steps_from_case(test_case_id: Union[str, int]) -> Dict[str, Any]:
             "steps": formatted_steps,
         }
     except Exception as e:
-        logger.error("Excepción en get_test_steps_from_case: %s", str(e))
+        logger.error("Exception in get_test_steps_from_case: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
 def delete_all_test_steps(test_case_id: Union[str, int]) -> Dict[str, Any]:
     """
-    Tool: Elimina todos los pasos de prueba de un Test Case en Xray.
+    Tool: Deletes all test steps from a Test Case in Xray.
 
     Args:
-        test_case_id (Union[str, int]): ID o Clave del Caso de Prueba.
+        test_case_id (Union[str, int]): Test Case ID or Key.
 
     Returns:
-        Dict[str, Any]: Estado del proceso y resumen de eliminación.
+        Dict[str, Any]: Deletion process status and summary count.
     """
     try:
         xray = get_xray_client()
@@ -386,7 +438,7 @@ def delete_all_test_steps(test_case_id: Union[str, int]) -> Dict[str, Any]:
         if not resp.ok:
             return {
                 "status": "error",
-                "message": f"No se pudieron obtener los pasos del Test Case {norm_key}",
+                "message": f"Could not retrieve steps for Test Case {norm_key}",
             }
 
         steps_data = resp.json()
@@ -400,11 +452,11 @@ def delete_all_test_steps(test_case_id: Union[str, int]) -> Dict[str, Any]:
 
         return {
             "status": "success",
-            "message": f"Se eliminaron {deleted_count} pasos del Test Case {norm_key}",
+            "message": f"Deleted {deleted_count} steps from Test Case {norm_key}",
             "deleted_count": deleted_count,
         }
     except Exception as e:
-        logger.error("Excepción en delete_all_test_steps: %s", str(e))
+        logger.error("Exception in delete_all_test_steps: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -412,14 +464,14 @@ def add_test_steps(
     test_case_id: Union[str, int], steps: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
-    Tool: Agrega una lista de pasos de prueba a un Test Case existente en Xray.
+    Tool: Adds a list of test steps to an existing Test Case in Xray.
 
     Args:
-        test_case_id (Union[str, int]): ID del Caso de Prueba.
-        steps (List[Dict[str, Any]]): Lista de diccionarios con la definición del paso.
+        test_case_id (Union[str, int]): Test Case ID.
+        steps (List[Dict[str, Any]]): List of step definition dictionaries.
 
     Returns:
-        Dict[str, Any]: Estado de adición y cantidad de pasos agregados.
+        Dict[str, Any]: Status and count of added steps.
     """
     try:
         xray = get_xray_client()
@@ -434,11 +486,11 @@ def add_test_steps(
 
         return {
             "status": "success",
-            "message": f"Se agregaron {added_count} pasos a {norm_key}",
+            "message": f"Added {added_count} steps to {norm_key}",
             "added_count": added_count,
         }
     except Exception as e:
-        logger.error("Excepción en add_test_steps: %s", str(e))
+        logger.error("Exception in add_test_steps: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -449,16 +501,16 @@ def create_test_case(
     steps_data: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
-    Tool: Crea un nuevo Caso de Prueba en Jira vinculado a una User Story y le asigna sus pasos en Xray.
+    Tool: Creates a new Test Case in Jira linked to a User Story and assigns its Xray steps.
 
     Args:
-        user_story_id (Union[str, int]): ID de la US en Jira.
-        sprint_id (Union[str, int]): Identificador del Sprint.
-        testplan_id (Union[str, int]): ID del Test Plan asociable.
-        steps_data (Optional[List[Dict[str, Any]]]): Pasos opcionales a insertar en el test creado.
+        user_story_id (Union[str, int]): User Story ID in Jira.
+        sprint_id (Union[str, int]): Sprint identifier.
+        testplan_id (Union[str, int]): Associated Test Plan ID.
+        steps_data (Optional[List[Dict[str, Any]]]): Optional steps to insert into the created test.
 
     Returns:
-        Dict[str, Any]: Clave del Test Case creado y resultado de la vinculación.
+        Dict[str, Any]: Key of the created Test Case and linking result.
     """
     try:
         jira = get_jira_client()
@@ -469,7 +521,7 @@ def create_test_case(
         if not us_resp.ok:
             return {
                 "status": "error",
-                "message": f"No se encontró la User Story {us_key}",
+                "message": f"User Story {us_key} not found",
             }
 
         us_data = us_resp.json()
@@ -504,18 +556,16 @@ def create_test_case(
         if not create_resp.ok:
             return {
                 "status": "error",
-                "message": f"Error al crear Test Case: HTTP {create_resp.status_code}",
+                "message": f"Error creating Test Case: HTTP {create_resp.status_code}",
                 "details": create_resp.text,
             }
 
         created_data = create_resp.json()
         tc_key = created_data.get("key", "")
 
-        # Insertar pasos si fueron provistos
         if steps_data and tc_key:
             add_test_steps(tc_key, steps_data)
 
-        # Vincular con la US
         link_payload = {
             "type": {"name": "Befund"},
             "inwardIssue": {"key": us_data.get("key", us_key)},
@@ -525,11 +575,11 @@ def create_test_case(
 
         return {
             "status": "success",
-            "message": f"Caso de prueba {tc_key} creado y vinculado exitosamente",
+            "message": f"Test case {tc_key} created and linked successfully",
             "test_case_key": tc_key,
         }
     except Exception as e:
-        logger.error("Excepción en create_test_case: %s", str(e))
+        logger.error("Exception in create_test_case: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -540,16 +590,16 @@ def upload_execution_results(
     results_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Tool: Carga los resultados de ejecución de una prueba en Xray (vía archivo JSON o payload directo).
+    Tool: Uploads test execution results to Xray (via JSON file path or direct payload).
 
     Args:
-        test_execution_id (Union[str, int]): ID de la Ejecución del Test.
-        test_id (Union[str, int]): ID del Caso de Prueba.
-        results_filepath (Optional[str]): Ruta al archivo JSON con las evidencias/resultados.
-        results_payload (Optional[Dict[str, Any]]): Payload de resultados directo.
+        test_execution_id (Union[str, int]): Test Execution ID.
+        test_id (Union[str, int]): Test Case ID.
+        results_filepath (Optional[str]): Path to JSON file containing evidence/results.
+        results_payload (Optional[Dict[str, Any]]): Direct results payload.
 
     Returns:
-        Dict[str, Any]: Resultado dict de la subida a Xray API.
+        Dict[str, Any]: Result dictionary from Xray API response.
     """
     try:
         xray = get_xray_client()
@@ -564,13 +614,13 @@ def upload_execution_results(
             else:
                 return {
                     "status": "error",
-                    "message": f"Archivo de resultados no encontrado: {results_filepath}",
+                    "message": f"Results file not found: {results_filepath}",
                 }
 
         if not raw_results:
             return {
                 "status": "error",
-                "message": "Se requiere proporcionar results_filepath o results_payload",
+                "message": "Either results_filepath or results_payload must be provided",
             }
 
         payload = {
@@ -582,17 +632,17 @@ def upload_execution_results(
         if resp.ok:
             return {
                 "status": "success",
-                "message": f"Resultados subidos correctamente a {exec_key}",
+                "message": f"Results uploaded successfully to {exec_key}",
                 "response": resp.json() if resp.text else {},
             }
         else:
             return {
                 "status": "error",
-                "message": f"Error HTTP {resp.status_code} al subir resultados",
+                "message": f"HTTP Error {resp.status_code} while uploading results",
                 "details": resp.text,
             }
     except Exception as e:
-        logger.error("Excepción en upload_execution_results: %s", str(e))
+        logger.error("Exception in upload_execution_results: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -602,15 +652,15 @@ def set_issue_link(
     link_type: str = "Befund",
 ) -> Dict[str, Any]:
     """
-    Tool: Establece un enlace entre dos Issues en Jira.
+    Tool: Establishes an issue link between two Jira issues.
 
     Args:
-        inward_issue (Union[str, int]): Issue de origen/origen (ej. US).
-        outward_issue (Union[str, int]): Issue de destino/relacionado (ej. Bug, Test).
-        link_type (str): Nombre del tipo de enlace.
+        inward_issue (Union[str, int]): Source issue (e.g., User Story).
+        outward_issue (Union[str, int]): Destination/related issue (e.g., Bug, Test).
+        link_type (str): Name of the link type (default: "Befund").
 
     Returns:
-        Dict[str, Any]: Resultado dict de la creación del enlace.
+        Dict[str, Any]: Result dictionary of the link creation process.
     """
     try:
         jira = get_jira_client()
@@ -627,15 +677,15 @@ def set_issue_link(
         if resp.ok:
             return {
                 "status": "success",
-                "message": f"Enlace {link_type} creado entre {in_key} y {out_key}",
+                "message": f"Link {link_type} created between {in_key} and {out_key}",
             }
         else:
             return {
                 "status": "error",
-                "message": f"Error HTTP {resp.status_code} al crear enlace",
+                "message": f"HTTP Error {resp.status_code} while creating link",
             }
     except Exception as e:
-        logger.error("Excepción en set_issue_link: %s", str(e))
+        logger.error("Exception in set_issue_link: %s", str(e))
         return {"status": "error", "message": str(e)}
 
 
@@ -645,15 +695,15 @@ def create_bug_report(
     sprint_id: Union[str, int],
 ) -> Dict[str, Any]:
     """
-    Tool: Genera un reporte de Bug en Jira a partir de una Ejecución de Test de Xray fallida.
+    Tool: Generates a Bug report in Jira from a failed Xray Test Execution.
 
     Args:
-        test_execution_id (Union[str, int]): ID de la ejecución de test.
-        pdgo_version (str): Versión de la aplicación en prueba.
-        sprint_id (Union[str, int]): Número del Sprint.
+        test_execution_id (Union[str, int]): Test Execution ID.
+        pdgo_version (str): Application version being tested.
+        sprint_id (Union[str, int]): Sprint number.
 
     Returns:
-        Dict[str, Any]: Datos del Bug creado (bug_key, story_key, test_key).
+        Dict[str, Any]: Dictionary containing created Bug details (bug_key, story_key, test_key).
     """
     try:
         jira = get_jira_client()
@@ -663,7 +713,7 @@ def create_bug_report(
         if not exec_resp.ok:
             return {
                 "status": "error",
-                "message": f"No se encontró la ejecución {exec_key}",
+                "message": f"Test Execution {exec_key} not found",
             }
 
         exec_data = exec_resp.json()
@@ -671,7 +721,7 @@ def create_bug_report(
         if not runs_field:
             return {
                 "status": "error",
-                "message": f"No hay tests asociados a la ejecución {exec_key}",
+                "message": f"No tests associated with execution {exec_key}",
             }
 
         test_key = runs_field[0].get("testKey", "")
@@ -694,7 +744,7 @@ def create_bug_report(
         bug_payload = {
             "fields": {
                 "project": {"key": jira._prefix},
-                "summary": f"BG-STORY-{story_key}: Defecto detectado en {test_key}",
+                "summary": f"BG-STORY-{story_key}: Defect detected in {test_key}",
                 "issuetype": {"name": "Bug"},
                 "priority": {"id": tc_fields.get("priority", {}).get("id", "3")},
                 "fixVersions": DEFAULT_FIX_VERSIONS,
@@ -711,13 +761,12 @@ def create_bug_report(
         if not bug_resp.ok:
             return {
                 "status": "error",
-                "message": f"Error al crear Bug: HTTP {bug_resp.status_code}",
+                "message": f"Error creating Bug: HTTP {bug_resp.status_code}",
             }
 
         bug_data = bug_resp.json()
         bug_key = bug_data.get("key", "")
 
-        # Enlazar Bug con la US, Test y Test Execution
         set_issue_link(story_key, bug_key)
         set_issue_link(test_key, bug_key)
         set_issue_link(exec_key, bug_key)
@@ -730,5 +779,5 @@ def create_bug_report(
             "user_story_key": story_key,
         }
     except Exception as e:
-        logger.error("Excepción en create_bug_report: %s", str(e))
+        logger.error("Exception in create_bug_report: %s", str(e))
         return {"status": "error", "message": str(e)}
