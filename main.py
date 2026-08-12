@@ -218,7 +218,19 @@ def menu_option_6_environment():
 
     console.print(table)
 
+def menu_option_7_jira_assistant():
+    console.print(Rule("[bold green]Módulo 5: Asistente Jira (JQL + Almacenamiento Local + Chat/Charts)[/bold green]"))
+    console.print("[dim]Consultas conversacionales en Jira con generación de JQL, caché local SQLite y gráficos de resumen.[/dim]\n")
+    from modules.module_5_jira_assistant.agent import run_jira_assistant_chat
+    run_jira_assistant_chat()
+
 def main():
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        if arg in ["--module5", "--jira-chat", "-m5"]:
+            menu_option_7_jira_assistant()
+            return
+
     show_banner()
     while True:
         console.print("\n[bold cyan]Selecciona una opción del menú:[/bold cyan]")
@@ -226,11 +238,12 @@ def main():
         console.print("  [bold white]2.[/bold white] 💻 REPL TypeScript & Playwright (Módulo 2)")
         console.print("  [bold white]3.[/bold white] 🔄 Codegen -> Test TypeScript (Módulo 3)")
         console.print("  [bold white]4.[/bold white] 🏗️ Generador de POMs TypeScript (Módulo 4)")
-        console.print("  [bold white]5.[/bold white] 🧪 Ejecutar Pruebas Unitarias (Offline Test Suite)")
-        console.print("  [bold white]6.[/bold white] ⚙️ Verificar Entorno y Configuración")
+        console.print("  [bold white]5.[/bold white] 💬 Asistente Jira Chat & Analytics (Módulo 5)")
+        console.print("  [bold white]6.[/bold white] 🧪 Ejecutar Pruebas Unitarias (Offline Test Suite)")
+        console.print("  [bold white]7.[/bold white] ⚙️ Verificar Entorno y Configuración")
         console.print("  [bold white]0.[/bold white] ❌ Salir")
 
-        choice = Prompt.ask("\n[bold yellow]Opción[/bold yellow]", choices=["1", "2", "3", "4", "5", "6", "0"], default="1")
+        choice = Prompt.ask("\n[bold yellow]Opción[/bold yellow]", choices=["1", "2", "3", "4", "5", "6", "7", "0"], default="1")
 
         if choice == "1":
             menu_option_1_test_writer()
@@ -241,8 +254,10 @@ def main():
         elif choice == "4":
             menu_option_4_pom_generator()
         elif choice == "5":
-            menu_option_5_run_tests()
+            menu_option_7_jira_assistant()
         elif choice == "6":
+            menu_option_5_run_tests()
+        elif choice == "7":
             menu_option_6_environment()
         elif choice == "0":
             console.print("[cyan]¡Hasta luego![/cyan]")

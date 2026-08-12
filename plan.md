@@ -4,7 +4,7 @@
 
 El sistema consta de un motor de agentes en Python (basado en LangGraph/LangChain) que interactúa con un **Toolkit de Herramientas Python compartidas** (incluyendo integración con **Jira REST API** para la descarga automática de Historias de Usuario), orquesta y genera **código de automatización exclusivamente en TypeScript (`.ts`)** e interactúa con un **REPL de Playwright en TypeScript (Node.js/ts-node)**.
 
-El sistema se compone de **4 módulos independientes**, un **Toolbox de Herramientas Reutilizables** y un **núcleo de integración compartida (Core/Shared)**.
+El sistema se compone de **5 módulos independientes**, un **Toolbox de Herramientas Reutilizables** y un **núcleo de integración compartida (Core/Shared)**.
 
 ### Estructura de Directorios Propuesta
 
@@ -35,9 +35,15 @@ langTest/
 │   ├── module_3_test_coder/    # Módulo 3: Conversor Codegen -> Test TypeScript (@playwright/test)
 │   │   ├── agent.py            # Agente que refactoriza grabación TS + Jira + POMs en test TS
 │   │   └── test_runner.py      # Validación y auto-corrección del test TS usando el REPL de TS
-│   └── module_4_pom_generator/ # Módulo 4: Creador y Actualizador de POMs TypeScript
-│       ├── agent.py            # Agente para analizar vistas y generar/actualizar clases POM (.ts)
-│       └── templates/          # Plantillas de POM TS por tipo de vista (Form.ts.j2, Table.ts.j2, etc.)
+│   ├── module_4_pom_generator/ # Módulo 4: Creador y Actualizador de POMs TypeScript
+│   │   ├── agent.py            # Agente para analizar vistas y generar/actualizar clases POM (.ts)
+│   │   └── templates/          # Plantillas de POM TS por tipo de vista (Form.ts.j2, Table.ts.j2, etc.)
+│   └── module_5_jira_assistant/# Módulo 5: Agente de Consulta, Análisis y Soporte Jira (JQL + Storage + Chat/Charts)
+│       ├── agent.py            # Grafo LangGraph conversacional (Chat Agent) especializado en Jira
+│       ├── jql_engine.py       # Motor de construcción y ejecución de consultas JQL (REST/Xray API)
+│       ├── storage.py          # Almacenamiento local (SQLite/VectorDB) para indexación y caché masivo sin desbordar el LLM
+│       ├── chart_formatter.py  # Formateador de respuestas conversacionales (Chat) con gráficos/tablas visuales
+│       └── prompts.py          # Prompts para análisis sintético, detección de bloqueos y aclaración de dudas
 ├── shared_poms/                # Repositorio de clases POM en TypeScript (*.ts)
 ├── ts_repl_server/             # Entorno/Runner Node.js en TypeScript (evaluación viva de Playwright TS)
 │   ├── package.json            # Dependencias Node.js (@playwright/test, ts-node, typescript)
@@ -126,13 +132,37 @@ langTest/
     3. **Usuario / Playwright Codegen (TS):** Graba interacción en la aplicación web.
     4. **Módulo 3:** Grabación TS + Caso de Prueba Jira + POMs TS $\rightarrow$ Archivo de test automatizado `@playwright/test` en TypeScript.
     5. **Módulo 2 (TS REPL + Tools Python):** Ejecución interactiva, prueba y auto-corrección en vivo.
+    6. **Módulo 5 (Jira Assistant Chat & Analytics):** Asistente conversacional de consulta en tiempo real para análisis de bugs, test plans y trazabilidad Jira.
 - **Paso 6.2:** Exponer CLI para ejecución individual por módulo:
   ```bash
   python -m modules.module_1_test_writer --jira-id QA-123 --nav nav.json
   python -m modules.module_2_browser_repl --interactive-ts
+  python -m modules.module_5_jira_assistant --chat
   ```
 
 ---
+
+### Fase 7: Módulo 5 — Agente de Consulta, Análisis Masivo y Soporte Jira (`modules/module_5_jira_assistant`)
+
+- **Paso 7.1:** Diseñar el Motor de Almacenamiento y Caché Local (`storage.py`):
+  - Base de datos local (SQLite / DuckDB / Vector Store) para persistir e indexar grandes volúmenes de issues, bugs, user stories, comentarios y ejecuciones de test de Xray.
+  - Implementar paginación y almacenamiento diferido/por lotes que evita cargar miles de elementos directamente en la ventana de contexto del LLM (*Context Window Management*).
+  - Permitir búsquedas híbridas (SQL/vectorial/filtrado por metadatos) sobre el almacenamiento local.
+- **Paso 7.2:** Implementar el Motor JQL (`jql_engine.py`):
+  - Integración avanzada con la REST API de Jira y Xray para construir y ejecutar consultas JQL complejas (filtrado por proyecto, sprint, estado, assignee, etiquetas, componentes, etc.).
+  - Paginación automática de respuestas de la API de Jira y volcado directo al almacenamiento local (`storage.py`).
+- **Paso 7.3:** Desarrollar el Agente Conversor y Formateador Visual (`chart_formatter.py`):
+  - Interfaz y formato de respuesta tipo **Chat** conversacional.
+  - Generación de resúmenes sintéticos con apoyo visual de tipo **Chart / Tabla / Mermaid**:
+    - Distribución y volumen de bugs por prioridad/estado.
+    - Avance y porcentaje de éxito/fallo en Test Plans y Test Executions.
+    - Matriz de trazabilidad entre User Stories, Test Cases y Defectos.
+- **Paso 7.4:** Implementar el Grafo Conversacional y Prompts (`agent.py` & `prompts.py`):
+  - Grafo LangGraph conversacional que mantiene el historial de chat con el usuario.
+  - Lógica de decisión: dada la consulta en lenguaje natural del usuario, traduce la intención a JQL, consulta/actualiza el almacenamiento local, realiza operaciones de agregación local y presenta explicaciones claras para resolver problemas, dudas o cuellos de botella.
+- **Paso 7.5:** Pruebas e Integración:
+  - Validar consultas masivas de >500 issues comprobando la conservación del contexto del LLM y la rapidez del almacenamiento local.
+  - Verificar las respuestas en modo interactivo CLI y formato gráfico Markdown/Mermaid/Tabla.
 
 ## 3. Preguntas y Aclaraciones para el Usuario
 
