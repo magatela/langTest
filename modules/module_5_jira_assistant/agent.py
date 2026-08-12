@@ -10,6 +10,7 @@ Procesa consultas en lenguaje natural:
    Formula JQL, descarga e indexa los datos en la base de datos local SQLite para no desbordar el contexto del LLM.
 
 Responde en formato Chat enriquecido con tarjetas detalladas de issue, gráficos Mermaid y tablas de resumen.
+Interfaz CLI formateada en Rich UI con colores diferenciados para Usuario y Asistente.
 """
 
 from __future__ import annotations
@@ -105,14 +106,12 @@ def extract_issue_keys(text: str, default_prefix: str = DEFAULT_PROJECT_KEY) -> 
         List[str]: Claves de Jira detectadas únicas.
     """
     keys = []
-    # Patrón con prefijo completo (ej. PDNEU-1234, QA-456)
     matches_full = re.findall(r"\b[A-Za-z][A-Za-z0-9]+-\d+\b", text)
     for m in matches_full:
         norm = normalize_issue_key(m, default_prefix)
         if norm not in keys:
             keys.append(norm)
 
-    # Si no se encontró clave con guión, buscar referencias a números sueltos precedidos por # o palabras clave (ej. issue 1234)
     if not keys:
         matches_num = re.findall(r"(?:issue|key|story|bug|test|#)\s*#?(\d+)", text, re.IGNORECASE)
         for num in matches_num:
@@ -162,11 +161,10 @@ def create_jira_assistant_graph(
             keys_str = ", ".join(f'"{k}"' for k in issue_keys)
             jql_result = f"key IN ({keys_str})"
         else:
-            # Consulta masiva / general
             if llm is not None:
                 try:
                     sys_msg = SystemMessage(content=JQL_TRANSLATOR_SYSTEM_PROMPT)
-                    usr_msg = HumanMessage(content=f"Consulta del usuario: {user_query}")
+                    usr_msg = HumanMessage(content=f"Benutzeranfrage: {user_query}")
                     res = llm.invoke([sys_msg, usr_msg])
                     content = res.content if hasattr(res, "content") else str(res)
 
@@ -178,11 +176,11 @@ def create_jira_assistant_graph(
 
             if not jql_result:
                 lower_q = user_query.lower()
-                if "bug" in lower_q or "defecto" in lower_q:
+                if "bug" in lower_q or "fehler" in lower_q or "defecto" in lower_q:
                     jql_result = jql_engine.build_jql(issue_types=["Bug"])
-                elif "story" in lower_q or "historia" in lower_q:
+                elif "story" in lower_q or "user story" in lower_q or "historia" in lower_q:
                     jql_result = jql_engine.build_jql(issue_types=["Story"])
-                elif "test" in lower_q or "prueba" in lower_q:
+                elif "test" in lower_q or "prüfung" in lower_q or "prueba" in lower_q:
                     jql_result = jql_engine.build_jql(issue_types=["Test"])
                 else:
                     jql_result = jql_engine.build_jql(text_query=user_query)
@@ -207,7 +205,6 @@ def create_jira_assistant_graph(
 
         if is_single and target_keys:
             for key in target_keys:
-                # Herramienta direct de Jira para descargar detalles completos del issue
                 details = fetch_user_story_details(key)
                 if details.get("status") == "success":
                     raw_data = details.get("raw", {})
@@ -219,12 +216,11 @@ def create_jira_assistant_graph(
                             "fields": {
                                 "summary": details.get("summary", ""),
                                 "description": details.get("description", ""),
-                                "priority": {"name": details.get("priority", "Medium")},
-                                "status": {"name": details.get("issue_status", "Open")},
+                                "priority": {"name": details.get("priority", "Mittel")},
+                                "status": {"name": details.get("issue_status", "Offen")},
                             }
                         })
 
-                # Si es un Test Case, consultar también sus pasos con la herramienta especializada
                 steps_info = get_test_steps_from_case(key)
                 if steps_info.get("status") == "success":
                     details["steps"] = steps_info.get("steps", [])
@@ -233,7 +229,6 @@ def create_jira_assistant_graph(
 
             fetch_res = {"status": "success", "mode": "direct_tool", "count": len(single_details)}
         else:
-            # Descarga e indexación masiva local vía JQL
             fetch_res = jql_engine.fetch_and_cache(jql, storage, max_results=150)
 
         return {
@@ -242,7 +237,7 @@ def create_jira_assistant_graph(
         }
 
     def local_analysis_node(state: JiraAgentState) -> Dict[str, Any]:
-        """Nodo 3: Genera representaciones visuales y resumen estadístico."""
+        """Nodo 3: Genera representaciones visuales y resumen estadístico en alemán."""
         is_single = state.get("is_single_issue", False)
         single_details = state.get("single_issue_details", [])
 
@@ -251,21 +246,21 @@ def create_jira_assistant_graph(
             for item in single_details:
                 key = item.get("key", "")
                 summary = item.get("summary", "")
-                desc = item.get("description", "Sin descripción")
-                status = item.get("issue_status", item.get("status", "Open"))
-                prio = item.get("priority", "Medium")
+                desc = item.get("description", "Keine Beschreibung vorhanden.")
+                status = item.get("issue_status", item.get("status", "Offen"))
+                prio = item.get("priority", "Mittel")
                 steps = item.get("steps", [])
 
                 card_lines = [
-                    f"### 📋 Ficha del Issue Jira: `{key}`",
-                    f"- **Título:** {summary}",
-                    f"- **Estado:** `{status}` | **Prioridad:** `{prio}`",
-                    f"- **Descripción:** {desc if desc else 'Sin descripción.'}",
+                    f"### 📋 Jira-Issue Details: `{key}`",
+                    f"- **Titel:** {summary}",
+                    f"- **Status:** `{status}` | **Priorität:** `{prio}`",
+                    f"- **Beschreibung:** {desc if desc else 'Keine Beschreibung vorhanden.'}",
                 ]
 
                 if steps:
-                    card_lines.append("\n#### Pasos de Prueba Definidos (Xray):")
-                    card_lines.append("| # | Acción | Datos | Resultado Esperado |")
+                    card_lines.append("\n#### Definierte Testschritte (Xray):")
+                    card_lines.append("| # | Aktion | Daten | Erwartetes Ergebnis |")
                     card_lines.append("|---|---|---|---|")
                     for idx, step in enumerate(steps, 1):
                         card_lines.append(f"| {idx} | {step.get('step','')} | {step.get('data','')} | {step.get('result','')} |")
@@ -278,21 +273,21 @@ def create_jira_assistant_graph(
             recent_issues = storage.query_issues(limit=15)
 
             card = ChartFormatter.format_summary_card(stats)
-            table = ChartFormatter.format_issues_table(recent_issues, title="Issues Relevantes en Caché Local")
+            table = ChartFormatter.format_issues_table(recent_issues, title="Relevante Issues im lokalen Speicher")
 
             pie_chart = ""
             if stats.get("by_status"):
                 pie_chart = ChartFormatter.format_mermaid_pie_chart(
                     stats["by_status"],
-                    title="Distribución por Estado"
+                    title="Verteilung nach Status"
                 )
 
             bar_chart = ""
             if stats.get("by_priority"):
                 bar_chart = ChartFormatter.format_mermaid_bar_chart(
                     stats["by_priority"],
-                    title="Distribución por Prioridad",
-                    x_label="Prioridad",
+                    title="Verteilung nach Priorität",
+                    x_label="Priorität",
                     y_label="Issues"
                 )
 
@@ -301,7 +296,7 @@ def create_jira_assistant_graph(
         return {"chart_output": charts_combined}
 
     def response_node(state: JiraAgentState) -> Dict[str, Any]:
-        """Nodo 4: Construye la respuesta conversacional final."""
+        """Nodo 4: Construye la respuesta conversacional final en alemán."""
         user_query = state.get("user_query", "")
         jql = state.get("jql_query", "")
         charts = state.get("chart_output", "")
@@ -312,12 +307,12 @@ def create_jira_assistant_graph(
         if llm is not None:
             try:
                 sys_msg = SystemMessage(content=QA_ASSISTANT_SYSTEM_PROMPT)
-                prompt_content = f"""CONSULTA DEL USUARIO: {user_query}
-TIPO DE CONSULTA: {'Puntual / Herramienta Directa (Single Issue)' if is_single else 'Búsqueda JQL / Agregación Masiva'}
-JQL / KEY CONSULTADO: `{jql}`
-ESTADÍSTICAS EN CACHÉ LOCAL: {json.dumps(stats, ensure_ascii=False)}
+                prompt_content = f"""BENUTZERANFRAGE: {user_query}
+ABFRAGETYP: {'Einzelausgabe / Direktes Werkzeug' if is_single else 'JQL-Abfrage / Massenaggregation'}
+JQL / KEY: `{jql}`
+AGGREGIERTE LOKALE JIRA-DATEN: {json.dumps(stats, ensure_ascii=False)}
 
-Por favor elabora una respuesta clara, conversacional y explicativa en formato Chat aclarando las dudas del usuario.
+Bitte erstelle eine klare, hilfreiche und gut strukturierte Antwort (im Chat-Format) AUSSCHLIESSLICH AUF DEUTSCH, um die Fragen des Benutzers zu klären.
 """
                 usr_msg = HumanMessage(content=prompt_content)
                 res = llm.invoke([sys_msg, usr_msg])
@@ -328,9 +323,9 @@ Por favor elabora una respuesta clara, conversacional y explicativa en formato C
 
         if not final_text:
             final_text = (
-                f"### Asistente QA de Jira\n\n"
-                f"Procesada la consulta: **\"{user_query}\"**\n"
-                f"Consulta/Filtro empleado: `{jql}`\n\n"
+                f"### Jira QA-Assistent\n\n"
+                f"Bearbeitete Anfrage: **\"{user_query}\"**\n"
+                f"Verwendete JQL-Abfrage: `{jql}`\n\n"
                 f"{charts}"
             )
 
@@ -407,34 +402,65 @@ def run_jira_assistant_query(
 
 def run_jira_assistant_chat(storage_path: Optional[str] = None) -> None:
     """
-    Inicia una sesión interactiva en modo CLI Chat con el Asistente de Jira.
+    Inicia una sesión interactiva en modo CLI Chat con el Asistente de Jira usando Rich UI.
+    Formatea la salida simulando una interfaz de chat con colores diferenciados:
+    - Usuario: Panel e identificador VERDE ([bold green]).
+    - Asistente: Panel e identificador CYAN ([bold cyan]) con Markdown.
     """
-    print("=" * 70)
-    print("  MÓDULO 5: ASISTENTE CONVERSACIONAL DE JIRA (CHAT & CHARTS)")
-    print("  - Consultas puntuales: 'Muéstrame la historia PDNEU-1234' o 'Pasos de PDNEU-567'")
-    print("  - Consultas masivas: 'Muestra los bugs abiertos' o 'Estadísticas de test'")
-    print("  Escribe 'exit' o 'salir' para finalizar.")
-    print("=" * 70)
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.markdown import Markdown
+    from rich.padding import Padding
+    from rich.rule import Rule
+
+    console = Console()
+    console.print()
+    console.print(Rule("[bold cyan]🤖 JIRA QA ASSISTANT CHAT (DEUTSCH / CHAT UI)[/bold cyan]"))
+    console.print("[dim white]  - Einzelausgaben: 'PDNEU-1234' oder 'Details zu PDNEU-567'[/dim white]")
+    console.print("[dim white]  - Massenabfragen: 'Zeige offene Bugs' oder 'Teststatus-Übersicht'[/dim white]")
+    console.print("[dim yellow]  - Eingabe 'exit' oder 'salir' zum Beenden.[/dim yellow]\n")
 
     storage = JiraLocalStorage(storage_path or JiraLocalStorage().db_path)
 
     while True:
         try:
-            user_input = input("\n[Usuario] > ").strip()
+            user_input = console.input("\n[bold green]👤 Benutzer (Usuario) > [/bold green]").strip()
             if not user_input:
                 continue
 
             if user_input.lower() in ["exit", "salir", "quit"]:
-                print("\n¡Hasta luego!")
+                console.print("\n[bold yellow]Auf Wiedersehen! / ¡Hasta luego![/bold yellow]\n")
                 break
 
-            print("\n[Asistente] Procesando consulta en Jira y sincronizando...")
+            # 1. Mensaje del Usuario en Panel VERDE (Estilo Burbuja Chat)
+            user_panel = Panel(
+                user_input,
+                title="[bold green]👤 Benutzer / User[/bold green]",
+                border_style="green",
+                expand=False,
+                padding=(0, 2)
+            )
+            console.print()
+            console.print(Padding(user_panel, (0, 0, 0, 4)))
+
+            console.print("\n[dim cyan]🔄 [Jira Assistant] Suche in Jira und Synchronisierung der lokalen Datenbank...[/dim cyan]\n")
             result = run_jira_assistant_query(user_input, storage=storage)
-            print("\n" + result.get("answer", ""))
-            print("-" * 70)
+
+            answer_text = result.get("answer", "")
+
+            # 2. Respuesta del Asistente en Panel CYAN (Estilo Burbuja Chat con Markdown y espaciado)
+            bot_panel = Panel(
+                Markdown(answer_text),
+                title="[bold cyan]🤖 Jira QA-Assistent[/bold cyan]",
+                border_style="cyan",
+                expand=True,
+                padding=(1, 2)
+            )
+            console.print(Padding(bot_panel, (1, 4, 1, 0)))
+            console.print(Rule(style="dim cyan"))
 
         except (KeyboardInterrupt, EOFError):
-            print("\nSesión finalizada.")
+            console.print("\n[bold yellow]Sitzung beendet.[/bold yellow]\n")
             break
 
 
@@ -458,5 +484,5 @@ if __name__ == "__main__":
         run_jira_assistant_chat()
     else:
         demo_agent = JiraAssistantAgent(":memory:")
-        res = demo_agent.ask("Dame información sobre PDNEU-101")
+        res = demo_agent.ask("Zeige Informationen zu PDNEU-101")
         print(res["answer"])

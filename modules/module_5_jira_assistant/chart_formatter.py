@@ -3,8 +3,7 @@
 Formateador Gráfico y Visual (Charts, Mermaid y Tablas Markdown) para el Módulo 5.
 
 Transforma estadísticas agregadas y listados de datos de Jira traídos del almacenamiento
-local en gráficos de Mermaid, tablas comparativas y tarjetas ejecutivas para enriquecer
-la interfaz de Chat del agente.
+local en gráficos de Mermaid, tablas comparativas y tarjetas ejecutivas en alemán.
 """
 
 from __future__ import annotations
@@ -20,11 +19,11 @@ class ChartFormatter:
     @staticmethod
     def format_issues_table(
         issues: List[Dict[str, Any]],
-        title: str = "Lista de Issues",
+        title: str = "Liste von Jira-Issues",
         max_rows: int = 15
     ) -> str:
         """
-        Genera una tabla Markdown limpia a partir de una lista de issues.
+        Genera una tabla Markdown limpia a partir de una lista de issues en alemán.
 
         Args:
             issues: Lista de diccionarios de issues.
@@ -35,24 +34,24 @@ class ChartFormatter:
             str: Tabla en formato GitHub Markdown.
         """
         if not issues:
-            return f"### {title}\n*No se encontraron issues para mostrar.*"
+            return f"### {title}\n*Keine Issues zum Anzeigen gefunden.*"
 
         lines = [
-            f"### {title} (Mostrando {min(len(issues), max_rows)} de {len(issues)})",
+            f"### {title} (Zeige {min(len(issues), max_rows)} von {len(issues)})",
             "",
-            "| Key | Tipo | Resumen | Estado | Prioridad | Asignado |",
+            "| Schlüssel | Typ | Zusammenfassung | Status | Priorität | Zugewiesen |",
             "|---|---|---|---|---|---|",
         ]
 
         for issue in issues[:max_rows]:
             key = issue.get("key", "")
-            itype = issue.get("issue_type", "Unknown")
+            itype = issue.get("issue_type", "Unbekannt")
             summary = (issue.get("summary", "") or "").replace("|", "\\|")
             if len(summary) > 50:
                 summary = summary[:47] + "..."
-            status = issue.get("status", "Unknown")
-            prio = issue.get("priority", "Medium")
-            assignee = issue.get("assignee", "Unassigned")
+            status = issue.get("status", "Offen")
+            prio = issue.get("priority", "Mittel")
+            assignee = issue.get("assignee", "Nicht zugewiesen")
             lines.append(f"| `{key}` | {itype} | {summary} | **{status}** | {prio} | {assignee} |")
 
         return "\n".join(lines)
@@ -60,7 +59,7 @@ class ChartFormatter:
     @staticmethod
     def format_mermaid_pie_chart(
         data_dict: Dict[str, int],
-        title: str = "Distribución de Issues por Estado"
+        title: str = "Verteilung der Issues nach Status"
     ) -> str:
         """
         Genera un diagrama de tarta Mermaid (Pie Chart).
@@ -89,9 +88,9 @@ class ChartFormatter:
     @staticmethod
     def format_mermaid_bar_chart(
         data_dict: Dict[str, int],
-        title: str = "Métricas por Categoria",
-        x_label: str = "Categorías",
-        y_label: str = "Cantidad"
+        title: str = "Metriken nach Priorität",
+        x_label: str = "Priorität",
+        y_label: str = "Anzahl"
     ) -> str:
         """
         Genera un diagrama de barras en Mermaid usando la sintaxis xychart-beta.
@@ -126,7 +125,7 @@ class ChartFormatter:
     @staticmethod
     def format_summary_card(stats: Dict[str, Any]) -> str:
         """
-        Genera una tarjeta resumen formateada en Markdown con estadísticas clave del proyecto QA.
+        Genera una tarjeta resumen formateada en Markdown con estadísticas clave del proyecto QA en alemán.
 
         Args:
             stats: Diccionario retornado por `JiraLocalStorage.get_summary_stats()`.
@@ -139,17 +138,17 @@ class ChartFormatter:
         by_status = stats.get("by_status", {})
         bugs = stats.get("bugs_by_status", {})
 
-        type_summary = ", ".join(f"**{k}**: {v}" for k, v in by_type.items()) if by_type else "Sin datos"
-        status_summary = ", ".join(f"**{k}**: {v}" for k, v in by_status.items()) if by_status else "Sin datos"
+        type_summary = ", ".join(f"**{k}**: {v}" for k, v in by_type.items()) if by_type else "Keine Daten"
+        status_summary = ", ".join(f"**{k}**: {v}" for k, v in by_status.items()) if by_status else "Keine Daten"
 
         card = f"""> [!NOTE]
-> **Resumen Ejecutivo de Jira en Almacenamiento Local**
-> - **Total de Issues Indexados:** `{total}`
-> - **Distribución por Tipo:** {type_summary}
-> - **Estados Clave:** {status_summary}
+> **Jira Zusammenfassung im lokalen Speicher**
+> - **Gesamtzahl indexierter Issues:** `{total}`
+> - **Verteilung nach Typ:** {type_summary}
+> - **Wichtige Status:** {status_summary}
 """
         if bugs:
             bugs_summary = ", ".join(f"**{k}**: {v}" for k, v in bugs.items())
-            card += f"> - **Estado de Bugs (Defectos):** {bugs_summary}\n"
+            card += f"> - **Status der Bugs (Fehler):** {bugs_summary}\n"
 
         return card

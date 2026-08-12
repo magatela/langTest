@@ -126,7 +126,7 @@ class TestModule5JiraAssistant(unittest.TestCase):
     def test_chart_formatter(self):
         """Prueba la generación de tablas Markdown y gráficos Mermaid."""
         table_md = ChartFormatter.format_issues_table(self.mock_jira_issues, title="Tabla de Test")
-        self.assertIn("| Key | Tipo | Resumen |", table_md)
+        self.assertIn("| Schlüssel | Typ | Zusammenfassung |", table_md)
         self.assertIn("`PDNEU-101`", table_md)
 
         pie_md = ChartFormatter.format_mermaid_pie_chart({"Open": 5, "Closed": 10})
@@ -139,7 +139,7 @@ class TestModule5JiraAssistant(unittest.TestCase):
         self.assertIn("xychart-beta", bar_md)
 
         card_md = ChartFormatter.format_summary_card({"total_issues": 15, "by_type": {"Bug": 5}})
-        self.assertIn("Total de Issues Indexados:** `15`", card_md)
+        self.assertIn("Gesamtzahl indexierter Issues:** `15`", card_md)
 
     def test_jira_assistant_agent_execution(self):
         """Prueba la ejecución completa del agente conversacional del Módulo 5."""

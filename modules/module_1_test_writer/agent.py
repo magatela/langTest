@@ -47,9 +47,12 @@ def analyze_and_recommend_jira_references(
 
     analysis_prompt = f"""Du bist ein leitender QA-Analyst. Analysiere den folgenden User-Story-Text und identifiziere alle Erwähnungen oder Verweise auf andere Jira-Issues (z.B. PDNEU-1234, QA-56, FT-789) oder relevante Spezifikationen.
 
+STRIKTE SPRACHANFORDERUNG:
+Du musst AUSSCHLIESSLICH auf Deutsch antworten.
+
 Für jeden gefundenen Schlüssel (außer {norm_exclude}):
 1. Extrahiere den Schlüssel (z.B. "PDNEU-4567").
-2. Erkläre kurz auf Deutsch oder Spanisch, WARUM dieser Verweis für die Erstellung der Testfälle nützlich ist.
+2. Erkläre kurz auf Deutsch, WARUM dieser Verweis für die Erstellung der Testfälle nützlich ist.
 
 Gib deine Antwort AUSSCHLIESSLICH im JSON-Format wie folgt zurück:
 {{
