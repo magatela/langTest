@@ -125,9 +125,7 @@ class JQLEngine:
             
             while len(all_issues) < max_results:
                 current_max = min(page_size, max_results - len(all_issues))
-                # Construir endpoint con paginación
-                search_url = f"{jira.API_PATH}search?jql={sanitized_jql}&startAt={start_at}&maxResults={current_max}"
-                response = jira.get(search_url)
+                response = jira.jql_requests(sanitized_jql, max_results=current_max, start_at=start_at)
 
                 if response.status_code != 200:
                     logger.warning("Respuesta HTTP %s al ejecutar JQL '%s'", response.status_code, sanitized_jql)

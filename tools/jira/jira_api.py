@@ -105,13 +105,18 @@ class JiraAPI(RestAPIClient):
         """
         return self.get(f"{self.API_PATH}jql/autocompletedata")
 
-    def jql_requests(self, jql: str, max_results: int = 50):
+    def jql_requests(self, jql: str, max_results: int = 50, start_at: int = 0):
         """
         Führt eine JQL-Abfrage aus und gibt die Ergebnisse zurück.
+        Nutzt query params von requests für korrekte URL-Kodierung.
         :param jql: JQL-Abfrage-String.
         :param max_results: Maximale Anzahl der Ergebnisse (Standard: 50).
+        :param start_at: Start-Index für Paginierung (Standard: 0).
         """         
-        return self.get(f"{self.API_PATH}search?jql={jql}&maxResults={max_results}")
+        return self.get(
+            f"{self.API_PATH}search",
+            params={"jql": jql, "maxResults": max_results, "startAt": start_at}
+        )
     
     def get_bugs_linked_to_test(self, test_id: str):
         jql = (

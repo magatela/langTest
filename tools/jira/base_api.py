@@ -102,34 +102,72 @@ class RestAPIClient:
         """
         Führt einen HTTP-Request aus und gibt das ``Response``-Objekt zurück.
         Ein JSON-Payload wird automatisch serialisiert, Header & Proxys werden
-        ergänzt.
+        ergänzt. Todas las peticiones son registradas automáticamente en logs/jira_api_calls.log.
         """
+        import time
         url = endpoint if endpoint.startswith("http") else self.base_url + endpoint
         self.logger.debug("%s %s", method, url)
 
         # Standard-Header + evtl. übergebene Header
         hdrs = {**self.headers, **kwargs.pop("headers", {})}
-        
-        resp = self.session.request(
-            method,
-            url,
-            auth=self.auth,
-            headers=hdrs,
-            proxies=self._proxies,
-            timeout=kwargs.pop("timeout", 30),
-            **kwargs,
-        )
+        params = kwargs.get("params")
+        data = kwargs.get("data")
 
-        # Fehler protokollieren, aber nicht automatisch Exception werfen –
-        # das überlassen wir den Aufrufern.
-        if not resp.ok:
+        start_time = time.time()
+        try:
+            resp = self.session.request(
+                method,
+                url,
+                auth=self.auth,
+                headers=hdrs,
+                proxies=self._proxies,
+                timeout=kwargs.pop("timeout", 30),
+                **kwargs,
+            )
+            duration_sec = time.time() - start_time
+
+            if not resp.ok:
+                try:
+                    error_payload = resp.json()
+                except ValueError:
+                    error_payload = resp.text
+                self.logger.debug(f"Fehlerhafte Antwort {resp.status_code} für {method} {url} {error_payload}")
+
+            # Registrar la llamada a la API en el archivo log formateado
             try:
-                error_payload = resp.json()
-            except ValueError:
-                error_payload = resp.text
-            print(f"Fehlerhafte Antwort {resp.status_code} für {method} {url} {error_payload}")
-            self.logger.debug(f"Fehlerhafte Antwort {resp.status_code} für {method} {url} {error_payload}")
-        return resp
+                from tools.jira.api_logger import log_api_call
+                log_api_call(
+                    method=method,
+                    url=url,
+                    status_code=resp.status_code,
+                    duration_sec=duration_sec,
+                    headers=hdrs,
+                    params=params,
+                    request_body=data,
+                    response=resp,
+                )
+            except Exception as log_err:
+                self.logger.warning("Fallo al registrar log de API: %s", str(log_err))
+
+            return resp
+
+        except Exception as e:
+            duration_sec = time.time() - start_time
+            try:
+                from tools.jira.api_logger import log_api_call
+                log_api_call(
+                    method=method,
+                    url=url,
+                    status_code=None,
+                    duration_sec=duration_sec,
+                    headers=hdrs,
+                    params=params,
+                    request_body=data,
+                    error=e,
+                )
+            except Exception:
+                pass
+            raise e
 
     # ------------------------------------------------------------------ #
     # Utility: Antwort als JSON-Datei sichern (debugging)                #
