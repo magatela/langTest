@@ -151,19 +151,14 @@ def validate_pom_in_repl(pom_code: str, bridge: Optional[TSPlaywrightREPLBridge]
     """
     Evalúa el código TypeScript del POM generado en el REPL para validar compilación.
     """
-    own_bridge = False
     if bridge is None:
-        bridge = TSPlaywrightREPLBridge()
-        if not bridge.start():
-            return {"status": "error", "error": "No se pudo iniciar el REPL para validación"}
-        own_bridge = True
+        from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge
+        bridge = get_repl_bridge()
 
-    try:
-        res = bridge.eval_code(pom_code)
-        return res
-    finally:
-        if own_bridge:
-            bridge.stop()
+    if not bridge.ensure_started():
+        return {"status": "error", "error": "No se pudo iniciar el REPL para validación"}
+
+    return bridge.eval_code(pom_code)
 
 def run_pom_generator_agent(
     mode: str = "create", # "create" o "update"

@@ -13,7 +13,7 @@ class PageManager {
     constructor() {}
 
     static async getBrowser(): Promise<Browser> {
-        if (!PageManager.browser) {
+        if (!PageManager.browser || !PageManager.browser.isConnected()) {
             const pwConfig = getPlaywrightConfig();
             const launchOptions: any = {
                 headless: pwConfig.headless,
@@ -30,17 +30,27 @@ class PageManager {
     }
 
     static async getPage(): Promise<Page> {
-        if (!PageManager.page) {
-            const browser = await (await PageManager.getBrowser()).newContext({ viewport: null, bypassCSP: true });
-            browser.setDefaultTimeout(10000);
-            PageManager.page = await browser.newPage();
+        const isBrowserConnected = PageManager.browser && PageManager.browser.isConnected();
+        const isPageValid = PageManager.page && !PageManager.page.isClosed();
+
+        if (!isBrowserConnected || !isPageValid) {
+            if (PageManager.browser && !isBrowserConnected) {
+                try { await PageManager.browser.close(); } catch {}
+                PageManager.browser = null as any;
+            }
+            const browserInstance = await PageManager.getBrowser();
+            const context = await browserInstance.newContext({ viewport: null, bypassCSP: true });
+            context.setDefaultTimeout(10000);
+            PageManager.page = await context.newPage();
         }
         return PageManager.page;
     }
 
     static async close() {
         if (PageManager.browser) {
-            await PageManager.browser.close();
+            try {
+                await PageManager.browser.close();
+            } catch {}
             PageManager.browser = null as any;
             PageManager.page = null as any;
         }

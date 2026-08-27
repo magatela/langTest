@@ -159,10 +159,13 @@ def menu_option_2_repl_ts():
             console.print(f"[red]Error al iniciar REPL interactivo:[/red] {e}")
     elif sub_choice == "2":
         console.print("\n[dim]Iniciando prueba del puente IPC desde Python...[/dim]\n")
-        from modules.module_2_browser_repl.ts_repl_bridge import TSPlaywrightREPLBridge
-        bridge = TSPlaywrightREPLBridge()
+        from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge
+        bridge = get_repl_bridge()
+        if not bridge.is_alive():
+            console.print("[bold yellow]ℹ️ El servidor REPL / navegador no está abierto. Iniciando automáticamente...[/bold yellow]")
+
         try:
-            if bridge.start():
+            if bridge.ensure_started():
                 console.print("[bold green]✓ Servidor REPL IPC iniciado y listo.[/bold green]")
                 snippet = Prompt.ask(
                     "[yellow]Ingresa un código TypeScript para evaluar[/yellow]",
@@ -170,7 +173,6 @@ def menu_option_2_repl_ts():
                 )
                 res = bridge.eval_code(snippet)
                 console.print(Panel(json.dumps(res, indent=2, ensure_ascii=False), title="Respuesta del Servidor REPL", border_style="cyan"))
-                bridge.stop()
             else:
                 console.print("[bold red]❌ No se pudo conectar al servidor REPL IPC.[/bold red]")
         except Exception as e:
@@ -189,7 +191,7 @@ def menu_option_4_pom_generator():
         list_available_reference_poms,
         run_pom_generator_agent
     )
-    from modules.module_2_browser_repl.ts_repl_bridge import TSPlaywrightREPLBridge
+    from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge
 
     # 1. Modo: Crear vs Actualizar
     console.print("  [bold white]1.[/bold white] 🆕 Crear un nuevo POM en TypeScript")
@@ -222,10 +224,13 @@ def menu_option_4_pom_generator():
     aria_snapshot = ""
     use_repl_context = Confirm.ask("\n¿Deseas conectar con la sesión activa del REPL (Módulo 2) para extraer un Aria Snapshot/captura?", default=False)
     if use_repl_context:
-        console.print("[dim]Conectando con el servidor REPL TypeScript...[/dim]")
-        bridge = TSPlaywrightREPLBridge()
+        bridge = get_repl_bridge()
+        if not bridge.is_alive():
+            console.print("[bold yellow]ℹ️ El servidor REPL / navegador no está abierto o fue cerrado por el usuario. Iniciando / abriendo navegador automáticamente...[/bold yellow]")
+
         try:
-            if bridge.start():
+            if bridge.ensure_started():
+                console.print("[bold green]✓ Servidor REPL y navegador abiertos y listos.[/bold green]")
                 selector = Prompt.ask("[yellow]Selector para inspeccionar[/yellow]", default="body")
                 res = bridge.get_aria_snapshot(selector)
                 if res.get("status") == "success":
@@ -233,7 +238,6 @@ def menu_option_4_pom_generator():
                     console.print("[bold green]✓ Aria Snapshot capturado exitosamente desde la vista activa.[/bold green]")
                 else:
                     console.print(f"[yellow]⚠️ No se pudo obtener Aria Snapshot: {res.get('error')}[/yellow]")
-                bridge.stop()
             else:
                 console.print("[red]❌ No se pudo conectar con el REPL.[/red]")
         except Exception as e:

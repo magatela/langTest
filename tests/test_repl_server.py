@@ -24,6 +24,16 @@ class TestReplServerIntegration(unittest.TestCase):
         bridge = TSPlaywrightREPLBridge()
         self.assertTrue(bridge.server_dir.exists())
         self.assertTrue((bridge.server_dir / "repl" / "repl.ts").exists())
+        self.assertFalse(bridge.is_running())
+        self.assertFalse(bridge.is_alive())
+
+    def test_get_repl_bridge_singleton(self):
+        from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge, reset_repl_bridge
+        reset_repl_bridge()
+        b1 = get_repl_bridge()
+        b2 = get_repl_bridge()
+        self.assertIs(b1, b2)
+        reset_repl_bridge()
 
 if __name__ == '__main__':
     unittest.main()
