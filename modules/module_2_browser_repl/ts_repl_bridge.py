@@ -93,6 +93,24 @@ class TSPlaywrightREPLBridge:
         """
         return self.send_command("eval_file", filePath=file_path)
 
+    def get_aria_snapshot(self, selector: str = "body") -> Dict[str, Any]:
+        """
+        Obtiene el ARIA snapshot del selector indicado mediante la sesión activa del REPL.
+        """
+        code = f"await page.locator({json.dumps(selector)}).ariaSnapshot();"
+        return self.eval_code(code)
+
+    def take_screenshot(self, path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Toma una captura de pantalla de la página activa mediante la sesión del REPL.
+        """
+        if path:
+            escaped_path = path.replace("\\", "/")
+            code = f"await page.screenshot({{ path: '{escaped_path}', fullPage: true }});"
+        else:
+            code = "await page.screenshot({ fullPage: true });"
+        return self.eval_code(code)
+
     def stop(self):
         """
         Detiene la sesión del navegador y el servidor REPL.
@@ -104,3 +122,4 @@ class TSPlaywrightREPLBridge:
                 pass
             self.process.terminate()
             self.process = None
+

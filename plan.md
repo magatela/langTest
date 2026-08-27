@@ -36,20 +36,20 @@ langTest/
 │   │   ├── agent.py            # Agente que refactoriza grabación TS + Jira + POMs en test TS
 │   │   └── test_runner.py      # Validación y auto-corrección del test TS usando el REPL de TS
 │   ├── module_4_pom_generator/ # Módulo 4: Creador y Actualizador de POMs TypeScript
-│   │   ├── agent.py            # Agente para analizar vistas y generar/actualizar clases POM (.ts)
-│   │   └── templates/          # Plantillas de POM TS por tipo de vista (Form.ts.j2, Table.ts.j2, etc.)
+│   │   ├── prompts.py          # Especificaciones, reglas y guía de buenas prácticas para crear/actualizar POMs
+│   │   └── agent.py            # Agente para analizar vistas y generar/actualizar clases POM (.ts)
 │   └── module_5_jira_assistant/# Módulo 5: Agente de Consulta, Análisis y Soporte Jira (JQL + Storage + Chat/Charts)
 │       ├── agent.py            # Grafo LangGraph conversacional (Chat Agent) especializado en Jira
 │       ├── jql_engine.py       # Motor de construcción y ejecución de consultas JQL (REST/Xray API)
 │       ├── storage.py          # Almacenamiento local (SQLite/VectorDB) para indexación y caché masivo sin desbordar el LLM
 │       ├── chart_formatter.py  # Formateador de respuestas conversacionales (Chat) con gráficos/tablas visuales
 │       └── prompts.py          # Prompts para análisis sintético, detección de bloqueos y aclaración de dudas
-├── shared_poms/                # Repositorio de clases POM en TypeScript (*.ts)
 ├── ts_repl_server/             # Entorno/Runner Node.js en TypeScript (evaluación viva de Playwright TS)
 │   ├── package.json            # Dependencias Node.js (@playwright/test, ts-node, typescript)
 │   ├── tsconfig.json           # Configuración del compilador TypeScript
-│   ├── node_modules/           # Módulos instalados para Playwright/TS (en .gitignore)
-│   └── repl_server.ts          # Servidor REPL en TS que mantiene el browser context activo
+│   ├── POM/                    # Clases POM en TypeScript (*.ts) en uso activo y registradas en el REPL
+│   ├── repl/                   # Servidor REPL e IPC bridge (repl.ts, pageManager.ts)
+│   └── util/                   # Utilidades de Playwright y cargadores
 ├── tests/                      # Pruebas unitarias e integrales del propio framework
 └── main.py                     # CLI u Orquestador global para ejecutar flujos combinados
 ```
@@ -101,14 +101,20 @@ langTest/
 
 ### Fase 4: Módulo 4 — Agente Generador/Actualizador de POMs en TypeScript (`modules/module_4_pom_generator`)
 
-- **Paso 4.1:** Crear motor de plantillas de POM en TypeScript (`templates/`):
-  - Plantillas Jinja2 configurables para generar clases TypeScript Playwright (ej. `FormPage.ts`, `TablePage.ts`, `ModalPage.ts`).
-  - Utiliza tipado fuerte de TypeScript (`Page`, `Locator`, interfaces de datos).
-- **Paso 4.2:** Implementar Agente de POMs:
-  - Analiza la estructura DOM/HTML o especificaciones de una vista.
-  - Genera una nueva clase TypeScript POM o actualiza un archivo `.ts` existente respetando la plantilla elegida por el usuario.
-- **Paso 4.3:** Validación del POM TS:
-  - Importa dinámicamente el nuevo POM `.ts` en el REPL de TypeScript (Módulo 2) y valida la resolución de locators y llamadas a métodos en vivo.
+- **Paso 4.1:** Implementar Agente de POMs (`agent.py` & `prompts.py`):
+  - **Uso de POMs Referenciales Activos:** Lee y analiza una o varias clases POM en TypeScript que están en uso e integradas en el REPL (`ts_repl_server/POM/`, ej. `NavigationPage.ts`, `BerichtMainPage.ts`) para extraer el patrón de diseño, las convenciones de código y la estructura tipada requerida. El agente preguntará al usuario qué POMs tomar como referencia y el nombre de la nueva clase a generar.
+  - **Interacción Multimodal y Captura REPL (Módulo 2):** Permite al usuario interactuar libremente con el REPL de TypeScript para navegar a la vista objetivo y obtener **capturas de pantalla (*screenshots*)** o un **aria snapshot** (del componente completo o de elementos específicos). El LLM utilizará esta información contextual para inferir locators y acciones.
+  - **Modo Crear / Actualizar:** Pregunta al usuario si desea crear un nuevo archivo `.ts` de POM o actualizar uno existente en `ts_repl_server/POM/` (solicitando en ese caso la ruta o nombre del archivo a modificar).
+- **Paso 4.2:** Validación viva del POM en TypeScript:
+  - Registra e importa dinámicamente el nuevo/actualizado POM `.ts` en el REPL de TypeScript (Módulo 2) y valida la compilación, resolución de locators y llamadas a métodos en tiempo real.
+
+- **Flujo de Trabajo del Agente:**
+  1. Solcita la información inicial al usuario (modo crear vs. actualizar, nombre de la clase, POMs de referencia a seguir).
+  2. *(Opcional)* El usuario navega en el REPL de TypeScript (Módulo 2) a la vista objetivo y genera capturas de pantalla o un *aria snapshot* del elemento deseado como contexto para el LLM.
+  3. El agente lee las especificaciones en `prompts.py` junto con las referencias de los POMs en uso (`ts_repl_server/POM/`) y genera/actualiza el archivo `.ts`.
+  4. Valida dinámicamente el POM generado ejecutando snippet de prueba en el REPL de TypeScript.
+  5. Informa al usuario sobre el resultado final y confirma la correcta integración.
+
 
 ### Fase 5: Módulo 3 — Agente Conversor de Grabación a Test en TypeScript (`modules/module_3_test_coder`)
 

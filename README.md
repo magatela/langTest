@@ -10,6 +10,7 @@ Sistema Modular de Agentes de Inteligencia Artificial para la Automatización de
 1. **Generación de Casos de Prueba:** Descarga Historias de Usuario desde Jira REST API y utiliza agentes iterativos (Writer y Reviewer en LangGraph) para escribir y revisar casos de prueba estructurados, con análisis asistido por LLM de referencias cruzadas.
 2. **Entorno de Ejecución TS REPL:** Inicia un servidor Node.js + TypeScript con Playwright para evaluar snippets e interactuar dinámicamente con el navegador (modo aislado para el usuario o modo IPC para los agentes).
 3. **Conversión a TypeScript & POM:** Transforma grabaciones de `playwright codegen` en archivos de pruebas `@playwright/test` fuertemente tipados utilizando el patrón Page Object Model (POM).
+4. **Generador y Actualizador de POMs TypeScript:** Analiza componentes web, estructuras ARIA e insumos visuales desde el REPL para crear o actualizar clases Page Object Model en TypeScript (`.ts`) alineadas con los POMs activos del proyecto (`ts_repl_server/POM/`).
 
 ---
 
@@ -34,14 +35,16 @@ langTest/
 │   │   ├── agent.py            # Grafo LangGraph del Módulo 1 y recomendador de referencias LLM
 │   │   └── prompts/            # Prompts especializados (testCaseWriter, testCaseReviewer, navigation)
 │   ├── module_2_browser_repl/  # Módulo 2: Agente TS REPL & Runner
-│   │   └── ts_repl_bridge.py   # Puente conector IPC entre Python y Node.js REPL
+│   │   └── ts_repl_bridge.py   # Puente conector IPC entre Python y Node.js REPL (eval_code, get_aria_snapshot)
 │   ├── module_3_test_coder/    # Módulo 3: Conversor Codegen -> Test TypeScript
-│   └── module_4_pom_generator/ # Módulo 4: Creador/Actualizador de clases POM (.ts)
-├── shared_poms/                # Repositorio central de clases POM TypeScript (*.ts)
+│   ├── module_4_pom_generator/ # Módulo 4: Creador/Actualizador de clases POM (.ts)
+│   │   ├── agent.py            # Agente generador y actualizador de clases POM (.ts)
+│   │   └── prompts.py          # Prompts y especificaciones de código TypeScript Playwright
+│   └── module_5_jira_assistant/# Módulo 5: Asistente conversacional de Jira (JQL + Caché + Visuals)
 ├── ts_repl_server/             # Entorno Runner de Node.js + TypeScript (Playwright REPL)
 │   ├── package.json            # Dependencias Node.js (@playwright/test, tsx, js-yaml, typescript)
 │   ├── tsconfig.json           # Configuración del compilador TypeScript
-│   ├── POM/                    # Clases POM compilables
+│   ├── POM/                    # Clases POM en TypeScript (*.ts) en uso activo y registradas en el REPL
 │   ├── util/                   # util.ts y configLoader.ts (Cargador YAML para Node.js)
 │   └── repl/                   # Servidor REPL e IPC bridge (repl.ts, pageManager.ts)
 ├── tests/                      # Suite de Pruebas Unitarias Offline
@@ -177,6 +180,41 @@ python main.py
 
 ---
 
+## 🏗️ Uso del Generador y Actualizador de POMs TypeScript (Módulo 4)
+
+El **Módulo 4** (`modules/module_4_pom_generator`) permite crear nuevas clases **Page Object Model (POM)** o actualizar archivos `.ts` existentes respetando las convenciones del proyecto y el tipado fuerte de `@playwright/test`.
+
+### Formas de Uso:
+
+#### Option A: Desde la CLI Interactiva (`main.py`)
+1. Ejecuta `python main.py`.
+2. Selecciona la **Opción 4** (`🏗️ Generador de POMs TypeScript`).
+3. Sigue los pasos interactivos:
+   - Selecciona entre **Crear un nuevo POM** o **Actualizar uno existente**.
+   - Ingresa el nombre de la clase/archivo objetivo (ej. `LoginPage.ts`).
+   - Elige los **POMs referenciales** activos en `ts_repl_server/POM/` que el LLM debe usar como modelo de código.
+   - *(Opcional)* Conecta con el servidor REPL (Módulo 2) para capturar el **Aria Snapshot** del elemento o componente web activo.
+   - Ingresa instrucciones adicionales (ej. *"Añadir método para enviar el formulario de registro"*).
+
+#### Option B: Invocación Programática en Python
+```python
+from modules.module_4_pom_generator.agent import run_pom_generator_agent
+
+result = run_pom_generator_agent(
+    mode="create",  # "create" o "update"
+    target_name="LoginPage.ts",
+    reference_files=["NavigationPage.ts", "BerichtMainPage.ts"],
+    aria_snapshot="- button 'Login'",
+    user_instructions="Crear locators estables para login",
+    validate=False
+)
+
+print(f"POM generado en: {result['path']}")
+print(result["code"])
+```
+
+---
+
 ## 🧪 Pruebas Unitarias Offline
 
 Para verificar el correcto funcionamiento del framework sin requerir conexión a internet ni llamadas activas a las APIs externas de Jira u OpenAI, ejecuta:
@@ -187,9 +225,9 @@ python -m unittest discover tests
 
 Salida esperada:
 ```text
-................
+...............................
 ----------------------------------------------------------------------
-Ran 17 tests in 3.520s
+Ran 31 tests in 2.888s
 
 OK
 ```
@@ -199,6 +237,8 @@ Las pruebas validan:
 * `test_jira_tools.py`: Clientes REST, peticiones mockeadas y formato de respuesta.
 * `test_module_1.py`: Carga de prompts, recomendador asistido por LLM y ciclo de ejecución mock de LangGraph.
 * `test_repl_server.py`: Estructura del servidor REPL de TypeScript y cargadores de configuración de Playwright.
+* `test_module_4.py`: Prompts de TypeScript, lectura de referencias `ts_repl_server/POM/`, parseo de código y modos de creación/actualización con mock LLM.
+* `test_module_5.py`: Asistente Jira, motor JQL, almacenamiento SQLite local y generador de respuestas visuales.
 
 ---
 
