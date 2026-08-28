@@ -35,9 +35,10 @@ langTest/
 │   ├── module_3_test_coder/    # Módulo 3: Conversor Codegen -> Test TypeScript (@playwright/test)
 │   │   ├── agent.py            # Agente que refactoriza grabación TS + Jira + POMs en test TS
 │   │   └── test_runner.py      # Validación y auto-corrección del test TS usando el REPL de TS
-│   ├── module_4_pom_generator/ # Módulo 4: Creador y Actualizador de POMs TypeScript
-│   │   ├── prompts.py          # Especificaciones, reglas y guía de buenas prácticas para crear/actualizar POMs
-│   │   └── agent.py            # Agente para analizar vistas y generar/actualizar clases POM (.ts)
+│   ├── module_4_pom_generator/ # Módulo 4: Creador y Actualizador de POMs TypeScript (ReAct Agent + Textual TUI)
+│   │   ├── agent.py            # Grafo ReAct de LangGraph con herramientas y bucle de auto-reparación
+│   │   ├── prompts.py          # Prompts y especificaciones en alemán para generación/actualización de POMs
+│   │   └── ui.py               # Interfaz gráfica TUI en Textual (Sidebar azul, Chat log, Input panel)
 │   └── module_5_jira_assistant/# Módulo 5: Agente de Consulta, Análisis y Soporte Jira (JQL + Storage + Chat/Charts)
 │       ├── agent.py            # Grafo LangGraph conversacional (Chat Agent) especializado en Jira
 │       ├── jql_engine.py       # Motor de construcción y ejecución de consultas JQL (REST/Xray API)
@@ -101,19 +102,24 @@ langTest/
 
 ### Fase 4: Módulo 4 — Agente Generador/Actualizador de POMs en TypeScript (`modules/module_4_pom_generator`)
 
-- **Paso 4.1:** Implementar Agente de POMs (`agent.py` & `prompts.py`):
-  - **Uso de POMs Referenciales Activos:** Lee y analiza una o varias clases POM en TypeScript que están en uso e integradas en el REPL (`ts_repl_server/POM/`, ej. `NavigationPage.ts`, `BerichtMainPage.ts`) para extraer el patrón de diseño, las convenciones de código y la estructura tipada requerida. El agente preguntará al usuario qué POMs tomar como referencia y el nombre de la nueva clase a generar.
-  - **Interacción Multimodal y Captura REPL (Módulo 2):** Permite al usuario interactuar libremente con el REPL de TypeScript para navegar a la vista objetivo y obtener **capturas de pantalla (*screenshots*)** o un **aria snapshot** (del componente completo o de elementos específicos). El LLM utilizará esta información contextual para inferir locators y acciones.
-  - **Modo Crear / Actualizar:** Pregunta al usuario si desea crear un nuevo archivo `.ts` de POM o actualizar uno existente en `ts_repl_server/POM/` (solicitando en ese caso la ruta o nombre del archivo a modificar).
-- **Paso 4.2:** Validación viva del POM en TypeScript:
-  - Registra e importa dinámicamente el nuevo/actualizado POM `.ts` en el REPL de TypeScript (Módulo 2) y valida la compilación, resolución de locators y llamadas a métodos en tiempo real.
+- **Paso 4.1:** Agente ReAct Autónomo en LangGraph (`agent.py` & `prompts.py`):
+  - **Bucle de Razonamiento y Herramientas (`StateGraph`):** El agente opera en un bucle autónomo utilizando herramientas de sistema (`read_workspace_file`, `write_workspace_file`, `eval_in_repl`, `inspect_aria_snapshot`, `take_screenshot`). Puede leer POMs de referencia en `ts_repl_server/POM/`, inspeccionar vistas activas, evaluar snippets en el REPL y auto-corregir errores de compilación o de locators de forma transparente.
+  - **Prompts y Guías en Alemán (`prompts.py`):** Especificaciones de código TypeScript Playwright fuertemente tipado (`Page`, `Locator`, métodos `async`).
+  - **Persistencia de Memoria:** Utiliza `MemorySaver` de LangGraph para mantener conversaciones multiturno continuas por `thread_id`.
+
+- **Paso 4.2:** Interfaz Gráfica TUI con Textual (`ui.py`):
+  - Aplicación `POMGeneratorTUI` construida con la librería **Textual** que recrea el diseño visual especificado:
+    - **Sidebar Izquierdo (Blau `#4285F4`):** Botones verdes `Add aria Snapshot` y `Add screenshot` para inyectar inspecciones del REPL en vivo al contexto del chat.
+    - **Panel Principal Derecho:**
+      - **Sección Chat Superior (Weiß `#FFFFFF`):** Área `RichLog` que renderiza el historial de mensajes, pensamiento de la IA, invocaciones a herramientas y respuestas finales.
+      - **Sección User Input Inferior (Grau `#757575`):** Área de entrada de texto con la propiedad de título `User Input` y botón redondeado en blanco `button send`.
 
 - **Flujo de Trabajo del Agente:**
-  1. Solcita la información inicial al usuario (modo crear vs. actualizar, nombre de la clase, POMs de referencia a seguir).
-  2. *(Opcional)* El usuario navega en el REPL de TypeScript (Módulo 2) a la vista objetivo y genera capturas de pantalla o un *aria snapshot* del elemento deseado como contexto para el LLM.
-  3. El agente lee las especificaciones en `prompts.py` junto con las referencias de los POMs en uso (`ts_repl_server/POM/`) y genera/actualiza el archivo `.ts`.
-  4. Valida dinámicamente el POM generado ejecutando snippet de prueba en el REPL de TypeScript.
-  5. Informa al usuario sobre el resultado final y confirma la correcta integración.
+  1. El usuario inicia la TUI (`python main.py` opción 4 o `python -m modules.module_4_pom_generator.ui`).
+  2. Presiona los botones del Sidebar (`Add aria Snapshot` / `Add screenshot`) para incluir contexto visual/DOM si lo requiere.
+  3. Escribe las instrucciones y hace clic en `button send` (o presiona `Enter`).
+  4. El agente ejecuta autónomamente el bucle ReAct: inspecciona, genera o actualiza el POM `.ts`, valida en el REPL y se auto-corrige si ocurren errores.
+  5. El archivo `.ts` se guarda automáticamente en `ts_repl_server/POM/` y el agente informa el resultado en el panel de chat.
 
 
 ### Fase 5: Módulo 3 — Agente Conversor de Grabación a Test en TypeScript (`modules/module_3_test_coder`)

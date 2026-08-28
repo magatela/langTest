@@ -38,8 +38,9 @@ langTest/
 │   │   └── ts_repl_bridge.py   # Puente conector IPC entre Python y Node.js REPL (eval_code, get_aria_snapshot)
 │   ├── module_3_test_coder/    # Módulo 3: Conversor Codegen -> Test TypeScript
 │   ├── module_4_pom_generator/ # Módulo 4: Creador/Actualizador de clases POM (.ts)
-│   │   ├── agent.py            # Agente generador y actualizador de clases POM (.ts)
-│   │   └── prompts.py          # Prompts y especificaciones de código TypeScript Playwright
+│   │   ├── agent.py            # Grafo ReAct de LangGraph con herramientas y bucle de auto-reparación
+│   │   ├── prompts.py          # Prompts y especificaciones en alemán para generación de POMs
+│   │   └── ui.py               # Interfaz gráfica TUI en Textual (Sidebar azul, Chat log, Input panel)
 │   └── module_5_jira_assistant/# Módulo 5: Asistente conversacional de Jira (JQL + Caché + Visuals)
 ├── ts_repl_server/             # Entorno Runner de Node.js + TypeScript (Playwright REPL)
 │   ├── package.json            # Dependencias Node.js (@playwright/test, tsx, js-yaml, typescript)
@@ -182,35 +183,50 @@ python main.py
 
 ## 🏗️ Uso del Generador y Actualizador de POMs TypeScript (Módulo 4)
 
-El **Módulo 4** (`modules/module_4_pom_generator`) permite crear nuevas clases **Page Object Model (POM)** o actualizar archivos `.ts` existentes respetando las convenciones del proyecto y el tipado fuerte de `@playwright/test`.
+El **Módulo 4** (`modules/module_4_pom_generator`) opera como un **Agente Autónomo ReAct en Bucle con LangGraph** equipado con una **Interfaz Gráfica de Consola (Textual TUI)** basada en el diseño de referencia:
+
+```text
++-----------------------+------------------------------------------------+
+| [Add aria Snapshot]   | chat                                           |
+| [Add screenshot]      |                                                |
+|                       |  - Historial conversacional continuo (ReAct)   |
+|  Sidebar              |  - Herramientas ejecutadas en vivo (REPL/Files)|
+|  (Fondo Azul)         |  - Renderizado Markdown / Rich                 |
+|                       |                                                |
+|                       +------------------------------------------------+
+|                       | User Input                                     |
+|                       | [ Escribe tu mensaje aquí... ]                 |
+|                       |                              ( button send )   |
++-----------------------+------------------------------------------------+
+```
 
 ### Formas de Uso:
 
-#### Option A: Desde la CLI Interactiva (`main.py`)
-1. Ejecuta `python main.py`.
-2. Selecciona la **Opción 4** (`🏗️ Generador de POMs TypeScript`).
-3. Sigue los pasos interactivos:
-   - Selecciona entre **Crear un nuevo POM** o **Actualizar uno existente**.
-   - Ingresa el nombre de la clase/archivo objetivo (ej. `LoginPage.ts`).
-   - Elige los **POMs referenciales** activos en `ts_repl_server/POM/` que el LLM debe usar como modelo de código.
-   - *(Opcional)* Conecta con el servidor REPL (Módulo 2) para capturar el **Aria Snapshot** del elemento o componente web activo.
-   - Ingresa instrucciones adicionales (ej. *"Añadir método para enviar el formulario de registro"*).
+#### Option A: Interfaz Gráfica TUI (Recomendado)
+1. Inicia la consola principal o la interfaz directa:
+   ```bash
+   python main.py
+   ```
+   *(Selecciona la **Opción 4: Generador de POMs TypeScript (TUI)**)*, o ejecútala directamente:
+   ```bash
+   python -m modules.module_4_pom_generator.ui
+   ```
+2. **Botones del Sidebar Izquierdo (Fondo Azul `#4285F4`):**
+   * **`Add aria Snapshot` (Botón Verde):** Extrae automáticamente el árbol de accesibilidad (ARIA tree) del navegador activo en el REPL y lo añade al contexto.
+   * **`Add screenshot` (Botón Verde):** Captura una pantalla del navegador y la vincula al contexto.
+3. **Panel Derecho (`chat` y `User Input`):**
+   * Escribe tu sugerencia en el panel inferior `User Input` y haz clic en **`button send`** (o presiona `Enter`).
+   * El agente ejecutará su bucle ReAct en tiempo real, transmitiendo sus razonamientos, invocaciones de herramientas (`read_workspace_file`, `write_workspace_file`, `eval_in_repl`, `inspect_aria_snapshot`) y auto-corrigiendo errores hasta guardar la clase `.ts` en `ts_repl_server/POM/`.
 
-#### Option B: Invocación Programática en Python
+#### Option B: Streaming Programático en Python
 ```python
-from modules.module_4_pom_generator.agent import run_pom_generator_agent
+from modules.module_4_pom_generator.agent import stream_pom_agent_turn
 
-result = run_pom_generator_agent(
-    mode="create",  # "create" o "update"
-    target_name="LoginPage.ts",
-    reference_files=["NavigationPage.ts", "BerichtMainPage.ts"],
-    aria_snapshot="- button 'Login'",
-    user_instructions="Crear locators estables para login",
-    validate=False
-)
-
-print(f"POM generado en: {result['path']}")
-print(result["code"])
+for event in stream_pom_agent_turn("Crea el POM LoginPage.ts inspeccionando la vista activa", thread_id="session_1"):
+    if event["type"] == "tool_call":
+        print(f"🛠️  Invoking: {event['name']}({event['args']})")
+    elif event["type"] == "ai_response":
+        print(f"🤖 Agent: {event['content']}")
 ```
 
 ---
