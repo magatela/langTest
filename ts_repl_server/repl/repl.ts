@@ -39,14 +39,14 @@ const POM_REGISTRY: Record<string, any> = {
 };
 
 class Executor {
-    private page!: Page;
-
     async init() {
-        this.page = await PageManager.getPage();
+        await PageManager.getPage();
     }
 
     async runUserCode(code: string) {
         try {
+            const activePage = await PageManager.getPage();
+
             // 1. Si el código incluye la marca legacy #NBELPH69, tomar el contenido tras ella
             let cleanCode = code.includes('#NBELPH69')
                 ? code.split('#NBELPH69').slice(1).join('\n')
@@ -71,7 +71,7 @@ class Executor {
 
             const moduleExports = {};
             const executionContext: Record<string, any> = {
-                page: this.page,
+                page: activePage,
                 require: (moduleName: string) => {
                     try {
                         return customRequire(moduleName);
@@ -86,7 +86,7 @@ class Executor {
 
             for (const [key, PomClass] of Object.entries(POM_REGISTRY)) {
                 if (typeof PomClass === 'function') {
-                    executionContext[key] = new PomClass(this.page);
+                    executionContext[key] = new PomClass(activePage);
                 }
             }
 
