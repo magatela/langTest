@@ -67,7 +67,6 @@ Screen {
 }
 
 #chat-header {
-    font-size: 2;
     text-style: bold;
     color: #000000;
     margin-bottom: 1;
@@ -89,7 +88,6 @@ Screen {
 }
 
 #input-header {
-    font-size: 2;
     text-style: bold;
     color: #FFFFFF;
     margin-bottom: 1;
