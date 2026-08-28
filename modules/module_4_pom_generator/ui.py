@@ -1,75 +1,77 @@
 # modules/module_4_pom_generator/ui.py
 """
-Textual TUI-Benutzeroberfläche für Modul 4 (TypeScript POM Generator & Agent).
-Reproduziert exakt das Layout der Referenzgrafik:
-- Linke Sidebar (Blau) mit grünen Buttons für Aria-Snapshot und Screenshot.
-- Rechter Hauptbereich:
-  - Oben: 'chat' Bereich (Weiß) mit Log-Verlauf des Agenten und der Werkzeuge.
-  - Unten: 'User Input' Bereich (Grau) mit Eingabefeld und weißer 'button send' Schaltfläche.
+Textual TUI-Benutzeroberfläche für Modul 4 (TypeScript POM Generator & ReAct Agent).
+Layout:
+- Vollbild-Chatbereich mit Aktivitätsanzeige (Loading Indicator / Status).
+- Schaltfläche zum Kopieren des Chat-Verlaufs in die Zwischenablage (pyperclip).
+- Unterer Eingabebereich mit Aktionsschaltfläche.
 """
 
 import json
 from pathlib import Path
 from typing import Optional
+import pyperclip
 
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Static, Input, RichLog, Label
+from textual.widgets import Button, Static, Input, RichLog, Label, LoadingIndicator
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual import on, work
-from textual.worker import Worker, WorkerState
+from textual.binding import Binding
 
-from modules.module_4_pom_generator.agent import (
-    stream_pom_agent_turn,
-    inspect_aria_snapshot,
-    take_screenshot
-)
+from modules.module_4_pom_generator.agent import stream_pom_agent_turn
 
 TCSS_STYLE = """
 Screen {
-    layout: horizontal;
+    layout: vertical;
     background: #4285F4;
+    padding: 0;
 }
 
-#sidebar {
-    width: 25%;
-    height: 100%;
-    background: #4285F4;
-    padding: 1 1;
-    border-right: solid #3367D6;
-}
-
-.btn-green {
+#main-container {
     width: 100%;
-    margin-bottom: 1;
-    background: #8BC34A;
-    color: #000000;
-    border: none;
-    text-style: bold;
-    height: 3;
-}
-
-.btn-green:hover {
-    background: #7CB342;
-}
-
-#main-panel {
-    width: 75%;
     height: 100%;
     layout: vertical;
 }
 
-#chat-container {
-    height: 75%;
+#top-bar {
+    height: 3;
     background: #FFFFFF;
     color: #000000;
-    padding: 1 2;
-    layout: vertical;
+    padding: 0 2;
+    align: justify middle;
+    border-bottom: solid #E0E0E0;
 }
 
 #chat-header {
     text-style: bold;
     color: #000000;
-    margin-bottom: 1;
+    content-align: left middle;
+}
+
+#status-label {
+    color: #2E7D32;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#btn-copy {
+    background: #E0E0E0;
+    color: #000000;
+    border: none;
+    text-style: bold;
+    min-width: 16;
+}
+
+#btn-copy:hover {
+    background: #BDBDBD;
+}
+
+#chat-container {
+    height: 72%;
+    background: #FFFFFF;
+    color: #000000;
+    padding: 1 2;
+    layout: vertical;
 }
 
 #chat-log {
@@ -77,6 +79,21 @@ Screen {
     background: #FFFFFF;
     color: #000000;
     border: none;
+}
+
+#spinner-bar {
+    height: 3;
+    background: #FFF9C4;
+    color: #F57F17;
+    padding: 0 2;
+    display: none;
+    align: left middle;
+}
+
+#spinner-text {
+    color: #E65100;
+    text-style: bold;
+    margin-left: 1;
 }
 
 #input-container {
@@ -121,25 +138,37 @@ Screen {
 
 class POMGeneratorTUI(App):
     """
-    Textual TUI Anwendung für den interaktiven POM Generator.
+    Textual TUI Anwendung für den interaktiven POM Generator (Vollbild-Chat).
     """
     CSS = TCSS_STYLE
     TITLE = "POM Generator Agent - ReAct TUI"
+    BINDINGS = [
+        Binding("ctrl+c", "copy_chat", "Chat kopieren", show=True),
+        Binding("ctrl+q", "quit", "Beenden", show=True),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.chat_history_text = []
 
     def compose(self) -> ComposeResult:
-        # 1. Linke Sidebar (Blau)
-        with Container(id="sidebar"):
-            yield Button("Add aria Snapshot", id="btn-aria", classes="btn-green")
-            yield Button("Add screenshot", id="btn-screenshot", classes="btn-green")
-
-        # 2. Rechter Hauptbereich
-        with Container(id="main-panel"):
-            # Chat Bereich (Weiß)
-            with Container(id="chat-container"):
+        with Container(id="main-container"):
+            # 1. Obere Leiste mit Titel, Status und Kopier-Button
+            with Horizontal(id="top-bar"):
                 yield Label("chat", id="chat-header")
+                yield Label("🟢 Bereit", id="status-label")
+                yield Button("📋 Copiar Chat", id="btn-copy")
+
+            # 2. Status-Banner beim Nachdenken / Werkzeugausführung
+            with Horizontal(id="spinner-bar"):
+                yield LoadingIndicator()
+                yield Label("⏳ Der Agent denkt nach und führt REPL-Werkzeuge aus...", id="spinner-text")
+
+            # 3. Chat-Bereich (Weiß)
+            with Container(id="chat-container"):
                 yield RichLog(id="chat-log", highlight=True, markup=True)
 
-            # User Input Bereich (Grau)
+            # 4. Eingabebereich (Grau)
             with Container(id="input-container"):
                 yield Label("User Input", id="input-header")
                 yield Input(placeholder="Escribe tu mensaje o instrucción para el agente...", id="input-field")
@@ -148,49 +177,24 @@ class POMGeneratorTUI(App):
 
     def on_mount(self) -> None:
         log = self.query_one("#chat-log", RichLog)
-        log.write("[bold green]🤖 Agent bereit.[/bold green] Gib eine Anweisung ein oder nutze die Buttons auf der linken Seite.")
+        msg = "🤖 [bold green]Agent bereit.[/bold green] Gib eine Anweisung ein (z. B. 'Erstelle LoginPage.ts mit Login-Formular'). Der Agent führt Inspektionen und REPL-Tests autonom durch."
+        log.write(msg)
+        self.chat_history_text.append("Agent: " + msg)
 
-    @on(Button.Pressed, "#btn-aria")
-    def action_add_aria_snapshot(self) -> None:
-        log = self.query_one("#chat-log", RichLog)
-        log.write("[bold yellow]📸 Inspektioniere Aria-Snapshot im REPL-Browser...[/bold yellow]")
-        
-        @work(thread=True)
-        def fetch_aria():
-            try:
-                res_text = inspect_aria_snapshot.invoke({"selector": "body"})
-                if "Fehler" not in res_text:
-                    self.call_from_thread(self._append_context_to_input, f"\n{res_text}")
-                    self.call_from_thread(log.write, "[bold green]✓ Aria Snapshot erfolgreich erfasst und zum Kontext hinzugefügt![/bold green]")
-                else:
-                    self.call_from_thread(log.write, f"[bold red]❌ {res_text}[/bold red]")
-            except Exception as e:
-                self.call_from_thread(log.write, f"[bold red]❌ Fehler: {e}[/bold red]")
-
-        fetch_aria()
-
-    @on(Button.Pressed, "#btn-screenshot")
-    def action_add_screenshot(self) -> None:
-        log = self.query_one("#chat-log", RichLog)
-        log.write("[bold yellow]📸 Erstelle Screenshot im REPL-Browser...[/bold yellow]")
-        
-        @work(thread=True)
-        def fetch_shot():
-            try:
-                res_text = take_screenshot.invoke({"filename": "tui_context_shot.png"})
-                if "Fehler" not in res_text:
-                    self.call_from_thread(self._append_context_to_input, "\n[Context Screenshot]: results/tui_context_shot.png")
-                    self.call_from_thread(log.write, "[bold green]✓ Screenshot erfolgreich erstellt unter results/tui_context_shot.png![/bold green]")
-                else:
-                    self.call_from_thread(log.write, f"[bold red]❌ {res_text}[/bold red]")
-            except Exception as e:
-                self.call_from_thread(log.write, f"[bold red]❌ Fehler: {e}[/bold red]")
-
-        fetch_shot()
-
-    def _append_context_to_input(self, text: str) -> None:
-        input_field = self.query_one("#input-field", Input)
-        input_field.value += text
+    @on(Button.Pressed, "#btn-copy")
+    def action_copy_chat(self) -> None:
+        """
+        Kopiert den gesamten Chatverlauf in die System-Zwischenablage via pyperclip.
+        """
+        full_text = "\n\n".join(self.chat_history_text)
+        try:
+            pyperclip.copy(full_text)
+            status = self.query_one("#status-label", Label)
+            status.update("📋 Chat in Zwischenablage kopiert!")
+            self.set_timer(3.0, lambda: status.update("🟢 Bereit"))
+        except Exception as e:
+            log = self.query_one("#chat-log", RichLog)
+            log.write(f"[bold red]❌ Fehler beim Kopieren in die Zwischenablage: {e}[/bold red]")
 
     @on(Button.Pressed, "#btn-send")
     @on(Input.Submitted, "#input-field")
@@ -203,8 +207,31 @@ class POMGeneratorTUI(App):
         input_field.value = ""
         log = self.query_one("#chat-log", RichLog)
         log.write(f"\n[bold blue]👤 User:[/bold blue] {user_text}")
+        self.chat_history_text.append(f"User: {user_text}")
 
+        # Status auf 'Arbeitet' setzen und Spinner anzeigen
+        self._set_working_state(True)
         self.run_agent_turn(user_text)
+
+    def _set_working_state(self, is_working: bool) -> None:
+        spinner_bar = self.query_one("#spinner-bar", Horizontal)
+        status_label = self.query_one("#status-label", Label)
+        btn_send = self.query_one("#btn-send", Button)
+        input_field = self.query_one("#input-field", Input)
+
+        if is_working:
+            spinner_bar.styles.display = "block"
+            status_label.update("⏳ Agent arbeitet...")
+            status_label.styles.color = "#E65100"
+            btn_send.disabled = True
+            input_field.disabled = True
+        else:
+            spinner_bar.styles.display = "none"
+            status_label.update("🟢 Bereit")
+            status_label.styles.color = "#2E7D32"
+            btn_send.disabled = False
+            input_field.disabled = False
+            input_field.focus()
 
     @work(thread=True)
     def run_agent_turn(self, user_message: str) -> None:
@@ -215,15 +242,25 @@ class POMGeneratorTUI(App):
                 if event_type == "tool_call":
                     tool_name = event.get("name")
                     args = json.dumps(event.get("args", {}), ensure_ascii=False)
-                    self.call_from_thread(log.write, f"🛠️ [dim]Invoking Tool:[/dim] [bold cyan]{tool_name}[/bold cyan]({args})")
+                    msg = f"🛠️ [dim]Invoking Tool:[/dim] [bold cyan]{tool_name}[/bold cyan]({args})"
+                    self.call_from_thread(log.write, msg)
+                    self.chat_history_text.append(f"Tool Call: {tool_name}({args})")
                 elif event_type == "tool_result":
-                    res_content = str(event.get("content", ""))[:150]
-                    self.call_from_thread(log.write, f"   ↳ [dim]Result:[/dim] {res_content}...")
+                    res_content = str(event.get("content", ""))[:200]
+                    msg = f"   ↳ [dim]Result:[/dim] {res_content}..."
+                    self.call_from_thread(log.write, msg)
+                    self.chat_history_text.append(f"Tool Result: {res_content}")
                 elif event_type == "ai_response":
                     ai_content = event.get("content", "")
-                    self.call_from_thread(log.write, f"\n[bold green]🤖 Agent:[/bold green]\n{ai_content}")
+                    msg = f"\n[bold green]🤖 Agent:[/bold green]\n{ai_content}"
+                    self.call_from_thread(log.write, msg)
+                    self.chat_history_text.append(f"Agent: {ai_content}")
         except Exception as e:
-            self.call_from_thread(log.write, f"[bold red]❌ Agent Error: {e}[/bold red]")
+            err_msg = f"[bold red]❌ Agent Error: {e}[/bold red]"
+            self.call_from_thread(log.write, err_msg)
+            self.chat_history_text.append(f"Error: {e}")
+        finally:
+            self.call_from_thread(self._set_working_state, False)
 
 if __name__ == "__main__":
     app = POMGeneratorTUI()
