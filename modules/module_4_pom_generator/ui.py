@@ -9,7 +9,7 @@ Layout:
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, Dict, List
 import pyperclip
 
 from textual.app import App, ComposeResult
@@ -139,9 +139,15 @@ Screen {
 }
 """
 
+import datetime
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+LOGS_DIR = ROOT_DIR / "results" / "agent_logs"
+
 class POMGeneratorTUI(App):
     """
-    Textual TUI Anwendung für den interaktiven POM Generator (Vollbild-Chat).
+    Textual TUI Anwendung für den interaktiven POM Generator (Vollbild-Chat mit JSON-Auditing).
     """
     CSS = TCSS_STYLE
     TITLE = "POM Generator Agent - ReAct TUI"
@@ -153,6 +159,10 @@ class POMGeneratorTUI(App):
     def __init__(self):
         super().__init__()
         self.chat_history_text = []
+        self.session_events = []
+        self.session_id = datetime.datetime.now().strftime("session_%Y%m%d_%H%M%S")
+        self.log_file = LOGS_DIR / f"pom_agent_{self.session_id}.json"
+        self.latest_log_file = LOGS_DIR / "pom_agent_latest.json"
 
     def compose(self) -> ComposeResult:
         with Container(id="main-container"):
@@ -179,10 +189,38 @@ class POMGeneratorTUI(App):
                     yield Button("button send", id="btn-send")
 
     def on_mount(self) -> None:
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
         log = self.query_one("#chat-log", RichLog)
         msg = "🤖 [bold green]Agent bereit.[/bold green] Gib eine Anweisung ein (z. B. 'Erstelle LoginPage.ts mit Login-Formular'). Der Agent führt Inspektionen und REPL-Tests autonom durch."
         log.write(msg)
+        log.write(f"[dim]📝 Chatverlauf wird protokolliert unter: results/agent_logs/pom_agent_{self.session_id}.json[/dim]\n")
         self.chat_history_text.append("Agent: " + msg)
+        self._record_event("system", msg)
+
+    def _record_event(self, role: str, content: Any, **extra) -> None:
+        event = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "role": role,
+            "content": content,
+            **extra
+        }
+        self.session_events.append(event)
+        self._persist_json_log()
+
+    def _persist_json_log(self) -> None:
+        try:
+            payload = {
+                "session_id": self.session_id,
+                "created_at": self.session_events[0]["timestamp"] if self.session_events else datetime.datetime.now().isoformat(),
+                "updated_at": datetime.datetime.now().isoformat(),
+                "total_events": len(self.session_events),
+                "events": self.session_events
+            }
+            json_text = json.dumps(payload, indent=2, ensure_ascii=False)
+            self.log_file.write_text(json_text, encoding="utf-8")
+            self.latest_log_file.write_text(json_text, encoding="utf-8")
+        except Exception:
+            pass
 
     @on(Button.Pressed, "#btn-copy")
     def action_copy_chat(self) -> None:
@@ -211,6 +249,7 @@ class POMGeneratorTUI(App):
         log = self.query_one("#chat-log", RichLog)
         log.write(f"\n[bold blue]👤 User:[/bold blue] {user_text}")
         self.chat_history_text.append(f"User: {user_text}")
+        self._record_event("user", user_text)
 
         # Status auf 'Arbeitet' setzen und Spinner anzeigen
         self._set_working_state(True)
@@ -244,24 +283,30 @@ class POMGeneratorTUI(App):
                 event_type = event.get("type")
                 if event_type == "tool_call":
                     tool_name = event.get("name")
-                    args = json.dumps(event.get("args", {}), ensure_ascii=False)
-                    msg = f"🛠️ [dim]Invoking Tool:[/dim] [bold cyan]{tool_name}[/bold cyan]({args})"
+                    args = event.get("args", {})
+                    args_str = json.dumps(args, ensure_ascii=False)
+                    msg = f"🛠️ [dim]Invoking Tool:[/dim] [bold cyan]{tool_name}[/bold cyan]({args_str})"
                     self.call_from_thread(log.write, msg)
-                    self.chat_history_text.append(f"Tool Call: {tool_name}({args})")
+                    self.chat_history_text.append(f"Tool Call: {tool_name}({args_str})")
+                    self.call_from_thread(self._record_event, "tool_call", {"tool": tool_name, "args": args})
                 elif event_type == "tool_result":
-                    res_content = str(event.get("content", ""))[:200]
-                    msg = f"   ↳ [dim]Result:[/dim] {res_content}..."
+                    res_content = str(event.get("content", ""))
+                    short_content = res_content[:200]
+                    msg = f"   ↳ [dim]Result:[/dim] {short_content}..."
                     self.call_from_thread(log.write, msg)
-                    self.chat_history_text.append(f"Tool Result: {res_content}")
+                    self.chat_history_text.append(f"Tool Result: {short_content}")
+                    self.call_from_thread(self._record_event, "tool_result", {"tool": event.get("name"), "output": res_content})
                 elif event_type == "ai_response":
                     ai_content = event.get("content", "")
                     msg = f"\n[bold green]🤖 Agent:[/bold green]\n{ai_content}"
                     self.call_from_thread(log.write, msg)
                     self.chat_history_text.append(f"Agent: {ai_content}")
+                    self.call_from_thread(self._record_event, "agent", ai_content)
         except Exception as e:
             err_msg = f"[bold red]❌ Agent Error: {e}[/bold red]"
             self.call_from_thread(log.write, err_msg)
             self.chat_history_text.append(f"Error: {e}")
+            self.call_from_thread(self._record_event, "error", str(e))
         finally:
             self.call_from_thread(self._set_working_state, False)
 
