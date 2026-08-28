@@ -38,7 +38,7 @@ Screen {
     background: #FFFFFF;
     color: #000000;
     padding: 0 2;
-    align: justify middle;
+    align: left middle;
     border-bottom: solid #E0E0E0;
 }
 
@@ -46,12 +46,14 @@ Screen {
     text-style: bold;
     color: #000000;
     content-align: left middle;
+    width: 20%;
 }
 
 #status-label {
     color: #2E7D32;
     text-style: bold;
     content-align: center middle;
+    width: 55%;
 }
 
 #btn-copy {
@@ -60,6 +62,7 @@ Screen {
     border: none;
     text-style: bold;
     min-width: 16;
+    width: 25%;
 }
 
 #btn-copy:hover {
