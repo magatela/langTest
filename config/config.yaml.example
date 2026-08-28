@@ -1,22 +1,54 @@
-# Configuración de Modelos LLM, Jira y Playwright (Plantilla de ejemplo)
-apiBase: "https://api.openai.com/v1"
-apiKey: "TU_API_KEY_AQUI"
+# ==============================================================================
+# CONFIGURACIÓN DE MODELOS LLM, JIRA Y PLAYWRIGHT (Plantilla de ejemplo)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. OPCIÓN A: GOOGLE AI STUDIO (Gemini - Gratuito)
+# Obtén tu API Key gratis en: https://aistudio.google.com
+# ------------------------------------------------------------------------------
+apiBase: "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 models:
-  - model: "gpt-4o"
+  - model: "gemini-3.6-flash"   # Modelo rápido y recomendado de Google AI Studio
     temperature: 0.2
-  - model: "gpt-4o"
+  - model: "gemini-3.6-pro"     # Modelo con mayor razonamiento para tareas complejas
     temperature: 0.1
 
+# ------------------------------------------------------------------------------
+# 2. OPCIÓN B: OPENAI OFICIAL (Descomenta para usar con OpenAI)
+# ------------------------------------------------------------------------------
+# apiBase: "https://api.openai.com/v1"
+# apiKey: ""
+# models:
+#   - model: "gpt-4o"
+#     temperature: 0.2
+#   - model: "gpt-4o-mini"
+#     temperature: 0.1
+
+# ------------------------------------------------------------------------------
+# 3. OPCIÓN C: LLM LOCAL (Ollama, LM Studio, vLLM)
+# ------------------------------------------------------------------------------
+# apiBase: "http://localhost:11434/v1"
+# apiKey: ""
+# models:
+#   - model: "qwen2.5-coder:32b"
+#     temperature: 0.2
+
+# ==============================================================================
+# CONFIGURACIÓN DE JIRA Y XRAY
+# ==============================================================================
 jira:
   base_url: "https://jira.tu-organizacion.com/"
   prefix: "PDNEU"
   user: "tu_usuario@email.com"
-  password: "tu_password_o_api_token"
+  password: ""
   proxies:
     http: "http://proxy-server:8080"
     https: "http://proxy-server:8080"
 
+# ==============================================================================
+# CONFIGURACIÓN DE PLAYWRIGHT Y NAVEGADOR
+# ==============================================================================
 playwright:
   use_custom_chrome_path: false
   chrome_path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
