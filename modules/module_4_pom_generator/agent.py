@@ -99,31 +99,39 @@ def eval_in_repl(ts_code: str) -> str:
 @tool
 def inspect_aria_snapshot(selector: str = "body") -> str:
     """
-    Inspektioniert die aktive Ansicht im REPL-Browser und gibt die ARIA-Baumstruktur (Barrierefreiheitsbaum, Lokatoren und Schaltflächen) zurück.
+    Inspektioniert die aktive Ansicht im REPL-Browser und gibt die vollständige ARIA-Baumstruktur (Barrierefreiheitsbaum, Lokatoren und Schaltflächen) zurück.
     """
     try:
         bridge = get_repl_bridge()
         if not bridge.ensure_started():
-            return json.dumps({"status": "error", "error": "REPL-Server konnte nicht gestartet werden."})
+            return "Fehler: REPL-Server konnte nicht gestartet werden."
         res = bridge.get_aria_snapshot(selector)
-        return json.dumps(res, ensure_ascii=False)
+        if res.get("status") == "success":
+            snapshot = res.get("result", "")
+            return f"### ARIA-SNAPSHOT FÜR SELECTOR '{selector}':\n```yaml\n{snapshot}\n```"
+        return f"Fehler beim Erfassen des Aria-Snapshots: {res.get('error')}"
     except Exception as e:
-        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
+        return f"Fehler: {str(e)}"
 
 @tool
 def take_screenshot(filename: str = "screenshot.png") -> str:
     """
-    Erstellt einen Screenshot der aktiven Seite im REPL-Browser und speichert ihn.
+    Erstellt einen Screenshot der aktiven Seite im REPL-Browser, speichert ihn und gibt Bilddaten im Base64-Format für die visuelle Analyse zurück.
     """
     try:
         bridge = get_repl_bridge()
         if not bridge.ensure_started():
-            return json.dumps({"status": "error", "error": "REPL-Server konnte nicht gestartet werden."})
-        output_path = str(ROOT_DIR / "results" / filename)
+            return "Fehler: REPL-Server konnte nicht gestartet werden."
+        output_dir = ROOT_DIR / "results"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = str(output_dir / filename)
         res = bridge.take_screenshot(output_path)
-        return json.dumps(res, ensure_ascii=False)
+        if res.get("status") == "success":
+            base64_data = res.get("base64", "")
+            return f"Screenshot erfolgreich erstellt und gespeichert unter '{output_path}'.\nBase64-Bilddaten (Data-URL): data:image/png;base64,{base64_data}\n(Hinweis: Für semantische Lokator-Hierarchien und Schaltflächen-Namen nutze auch 'inspect_aria_snapshot')."
+        return f"Fehler beim Erstellen des Screenshots: {res.get('error')}"
     except Exception as e:
-        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
+        return f"Fehler: {str(e)}"
 
 AGENT_TOOLS = [
     read_workspace_file,

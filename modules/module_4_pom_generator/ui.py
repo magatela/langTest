@@ -153,20 +153,17 @@ class POMGeneratorTUI(App):
     @on(Button.Pressed, "#btn-aria")
     def action_add_aria_snapshot(self) -> None:
         log = self.query_one("#chat-log", RichLog)
-        input_field = self.query_one("#input-field", Input)
         log.write("[bold yellow]📸 Inspektioniere Aria-Snapshot im REPL-Browser...[/bold yellow]")
         
         @work(thread=True)
         def fetch_aria():
             try:
-                res_str = inspect_aria_snapshot.invoke({"selector": "body"})
-                res = json.loads(res_str)
-                if res.get("status") == "success":
-                    snapshot_text = res.get("result", "")
-                    self.call_from_thread(self._append_context_to_input, f"\n[Context Aria Snapshot]:\n{snapshot_text[:500]}")
-                    self.call_from_thread(log.write, "[bold green]✓ Aria Snapshot erfolgreich zum Kontext hinzugefügt![/bold green]")
+                res_text = inspect_aria_snapshot.invoke({"selector": "body"})
+                if "Fehler" not in res_text:
+                    self.call_from_thread(self._append_context_to_input, f"\n{res_text}")
+                    self.call_from_thread(log.write, "[bold green]✓ Aria Snapshot erfolgreich erfasst und zum Kontext hinzugefügt![/bold green]")
                 else:
-                    self.call_from_thread(log.write, f"[bold red]❌ Fehler beim Aria Snapshot: {res.get('error')}[/bold red]")
+                    self.call_from_thread(log.write, f"[bold red]❌ {res_text}[/bold red]")
             except Exception as e:
                 self.call_from_thread(log.write, f"[bold red]❌ Fehler: {e}[/bold red]")
 
@@ -180,13 +177,12 @@ class POMGeneratorTUI(App):
         @work(thread=True)
         def fetch_shot():
             try:
-                res_str = take_screenshot.invoke({"filename": "tui_context_shot.png"})
-                res = json.loads(res_str)
-                if res.get("status") == "success":
-                    self.call_from_thread(self._append_context_to_input, "\n[Context Screenshot]: tui_context_shot.png")
-                    self.call_from_thread(log.write, "[bold green]✓ Screenshot erfolgreich erstellt![/bold green]")
+                res_text = take_screenshot.invoke({"filename": "tui_context_shot.png"})
+                if "Fehler" not in res_text:
+                    self.call_from_thread(self._append_context_to_input, "\n[Context Screenshot]: results/tui_context_shot.png")
+                    self.call_from_thread(log.write, "[bold green]✓ Screenshot erfolgreich erstellt unter results/tui_context_shot.png![/bold green]")
                 else:
-                    self.call_from_thread(log.write, f"[bold red]❌ Fehler beim Screenshot: {res.get('error')}[/bold red]")
+                    self.call_from_thread(log.write, f"[bold red]❌ {res_text}[/bold red]")
             except Exception as e:
                 self.call_from_thread(log.write, f"[bold red]❌ Fehler: {e}[/bold red]")
 

@@ -15,6 +15,8 @@ from modules.module_4_pom_generator.agent import (
     get_pom_dir,
     read_workspace_file,
     write_workspace_file,
+    inspect_aria_snapshot,
+    take_screenshot,
     create_pom_agent_graph,
     stream_pom_agent_turn
 )
@@ -71,6 +73,36 @@ class TestModule4POMGenerator(unittest.TestCase):
             "content": "export class OutPage {}"
         })
         self.assertIn("Erfolg", res_write)
+
+    @patch("modules.module_4_pom_generator.agent.get_repl_bridge")
+    def test_inspect_aria_snapshot_tool(self, mock_bridge_getter):
+        mock_bridge = MagicMock()
+        mock_bridge.ensure_started.return_value = True
+        mock_bridge.get_aria_snapshot.return_value = {
+            "status": "success",
+            "result": "- button 'Submit'\n- textbox 'Username'"
+        }
+        mock_bridge_getter.return_value = mock_bridge
+
+        res = inspect_aria_snapshot.invoke({"selector": "body"})
+        self.assertIn("button 'Submit'", res)
+        self.assertIn("textbox 'Username'", res)
+
+    @patch("modules.module_4_pom_generator.agent.get_repl_bridge")
+    @patch("modules.module_4_pom_generator.agent.ROOT_DIR")
+    def test_take_screenshot_tool(self, mock_root_dir, mock_bridge_getter):
+        mock_root_dir.__truediv__.return_value = self.temp_dir
+        mock_bridge = MagicMock()
+        mock_bridge.ensure_started.return_value = True
+        mock_bridge.take_screenshot.return_value = {
+            "status": "success",
+            "result": str(self.temp_dir / "shot.png"),
+            "base64": "iVBORw0KGgoAAAANSUhEUgAA..."
+        }
+        mock_bridge_getter.return_value = mock_bridge
+
+        res = take_screenshot.invoke({"filename": "shot.png"})
+        self.assertIn("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...", res)
 
     def test_create_pom_agent_graph(self):
         mock_llm = MagicMock()

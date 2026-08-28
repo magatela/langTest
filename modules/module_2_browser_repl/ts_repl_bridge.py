@@ -164,19 +164,33 @@ class TSPlaywrightREPLBridge:
         if "=" in sel and not sel.startswith("[") and not sel.startswith("role=") and not sel.startswith("text=") and not sel.startswith("internal:"):
             sel = f"[{sel}]"
 
-        code = f"await page.locator({json.dumps(sel)}).ariaSnapshot();"
+        code = f"return await page.locator({json.dumps(sel)}).ariaSnapshot();"
         return self.eval_code(code)
 
     def take_screenshot(self, path: Optional[str] = None) -> Dict[str, Any]:
         """
         Toma una captura de pantalla de la página activa mediante la sesión del REPL.
+        Retorna la ruta y el string en base64 de la imagen.
         """
         if path:
             escaped_path = path.replace("\\", "/")
-            code = f"await page.screenshot({{ path: '{escaped_path}', fullPage: true }});"
+            code = f"""
+                const buf = await page.screenshot({{ path: '{escaped_path}', fullPage: true }});
+                return buf.toString('base64');
+            """
         else:
-            code = "await page.screenshot({ fullPage: true });"
-        return self.eval_code(code)
+            code = """
+                const buf = await page.screenshot({ fullPage: true });
+                return buf.toString('base64');
+            """
+        res = self.eval_code(code)
+        if res.get("status") == "success":
+            return {
+                "status": "success",
+                "result": path or "screenshot_memory",
+                "base64": res.get("result", "")
+            }
+        return res
 
     def stop(self):
         """
