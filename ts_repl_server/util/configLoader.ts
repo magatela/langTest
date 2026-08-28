@@ -42,7 +42,7 @@ function loadConfigData(): any {
     let targetPath = fs.existsSync(yamlPath) ? yamlPath : (fs.existsSync(exampleYamlPath) ? exampleYamlPath : null);
 
     if (targetPath) {
-        try:
+        try {
             const content = fs.readFileSync(targetPath, 'utf-8');
             cachedConfig = yaml.load(content) || {};
         } catch (e) {
