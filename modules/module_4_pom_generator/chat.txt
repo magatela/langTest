@@ -1,0 +1,21 @@
+Agent: 🤖 [bold green]Agent bereit.[/bold green] Gib eine Anweisung ein (z. B. 'Erstelle LoginPage.ts mit Login-Formular'). Der Agent führt Inspektionen und REPL-Tests autonom durch.
+
+User: welche Tools hast du zu verfügung?
+
+Agent: Als autonomer Testautomatisierungs-Agent für Playwright in TypeScript verfüge ich über die folgenden Werkzeuge:
+
+*   **`inspect_aria_snapshot`**: Damit analysiere ich die aktive Ansicht im Browser und erhalte die vollständige ARIA-Baumstruktur (Barrierefreiheitsbaum, Lokatoren und Schaltflächen), um Elemente auf der Webseite zu identifizieren.
+*   **`take_screenshot`**: Mit diesem Tool erstelle ich Screenshots der aktuellen Seite, um eine visuelle Analyse der Benutzeroberfläche durchzuführen.
+*   **`read_workspace_file`**: Ich kann den Inhalt vorhandener Dateien im Projekt lesen (z. B. um bestehende Page Object Models zu prüfen).
+*   **`write_workspace_file`**: Ich kann neue Dateien erstellen oder bestehende Dateien überschreiben (z. B. zum Speichern von generierten TypeScript-Klassen).
+*   **`eval_in_repl`**: Dieses Werkzeug erlaubt es mir, TypeScript-Code in Echtzeit in einer aktiven Playwright-Browser-Sitzung auszuführen, um Code zu testen und zu validieren.
+
+User: starte die REPL
+
+Tool Call: eval_in_repl({"ts_code": "console.log(\"REPL ist bereit. Aktuelle URL: \" + await page.url());"})
+
+Tool Result: {"status": "error", "error": "Proceso REPL finalizó inesperadamente o el navegador fue cerrado."}
+
+Agent: Es scheint, dass der REPL-Prozess unerwartet beendet wurde oder der Browser geschlossen wurde. Da ich keinen direkten Zugriff auf die Infrastruktur habe, um den Browser-Prozess neu zu starten, kann ich die Sitzung aktuell nicht fortsetzen.
+
+Bitte stelle sicher, dass die Testumgebung bzw. der Browser-Dienst läuft, und versuche es erneut.
