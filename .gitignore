@@ -15,6 +15,7 @@ config/config.yaml
 # Node.js
 node_modules/
 ts_repl_server/node_modules/
+ts_repl_server\package-lock.json
 
 # Generated Outputs
 steps.json
