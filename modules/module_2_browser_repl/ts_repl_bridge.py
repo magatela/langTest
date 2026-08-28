@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -14,31 +15,35 @@ from typing import Any, Dict, Optional
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 TS_REPL_SERVER_DIR = ROOT_DIR / "ts_repl_server"
 
-# Instancia global compartida para gestionar la sesión del REPL
+# Instancia global compartida para gestionar la sesión del REPL (Singleton Thread-Safe)
 _GLOBAL_REPL_BRIDGE: Optional["TSPlaywrightREPLBridge"] = None
+_GLOBAL_LOCK = threading.Lock()
 
 def get_repl_bridge(server_dir: Optional[Path] = None) -> "TSPlaywrightREPLBridge":
     """
-    Obtiene la instancia global compartida del puente IPC con el REPL (Singleton).
+    Obtiene la instancia global compartida del puente IPC con el REPL (Singleton Thread-Safe).
     """
     global _GLOBAL_REPL_BRIDGE
-    if _GLOBAL_REPL_BRIDGE is None:
-        _GLOBAL_REPL_BRIDGE = TSPlaywrightREPLBridge(server_dir=server_dir)
-    return _GLOBAL_REPL_BRIDGE
+    with _GLOBAL_LOCK:
+        if _GLOBAL_REPL_BRIDGE is None:
+            _GLOBAL_REPL_BRIDGE = TSPlaywrightREPLBridge(server_dir=server_dir)
+        return _GLOBAL_REPL_BRIDGE
 
 def reset_repl_bridge():
     """
     Resetea la instancia global del REPL.
     """
     global _GLOBAL_REPL_BRIDGE
-    if _GLOBAL_REPL_BRIDGE is not None:
-        _GLOBAL_REPL_BRIDGE.stop()
-        _GLOBAL_REPL_BRIDGE = None
+    with _GLOBAL_LOCK:
+        if _GLOBAL_REPL_BRIDGE is not None:
+            _GLOBAL_REPL_BRIDGE.stop()
+            _GLOBAL_REPL_BRIDGE = None
 
 class TSPlaywrightREPLBridge:
     def __init__(self, server_dir: Optional[Path] = None):
         self.server_dir = server_dir or TS_REPL_SERVER_DIR
         self.process: Optional[subprocess.Popen] = None
+        self._lock = threading.Lock()
 
     def is_running(self) -> bool:
         """
@@ -72,16 +77,21 @@ class TSPlaywrightREPLBridge:
     def ensure_started(self, timeout: int = 15) -> bool:
         """
         Garantiza que el servidor REPL y el navegador estén abiertos y listos.
-        Si están cerrados o no responden, los inicia o reinicia automáticamente.
+        Si están cerrados o no responden, los inicia o reinicia automáticamente de forma atómica.
         """
-        if self.is_alive():
-            return True
-        return self.start(timeout=timeout)
+        with self._lock:
+            if self.is_alive():
+                return True
+            return self._start_unlocked(timeout=timeout)
 
     def start(self, timeout: int = 15) -> bool:
         """
         Inicia el servidor Node.js REPL en modo IPC (--ipc).
         """
+        with self._lock:
+            return self._start_unlocked(timeout=timeout)
+
+    def _start_unlocked(self, timeout: int = 15) -> bool:
         if self.is_running():
             return True
 
@@ -124,23 +134,22 @@ class TSPlaywrightREPLBridge:
         if not self.ensure_started():
             return {"status": "error", "error": "No se pudo iniciar el proceso TS REPL"}
 
-        req_id = str(uuid.uuid4())
-        payload = {"action": action, "id": req_id, **kwargs}
+        with self._lock:
+            req_id = str(uuid.uuid4())
+            payload = {"action": action, "id": req_id, **kwargs}
 
-        try:
-            json_str = json.dumps(payload) + "\n"
-            self.process.stdin.write(json_str)
-            self.process.stdin.flush()
-
-            response_line = self.process.stdout.readline()
-            if not response_line:
+            try:
+                json_str = json.dumps(payload) + "\n"
+                self.process.stdin.write(json_str)
+                self.process.stdin.flush()
+                response_line = self.process.stdout.readline()
+                if not response_line:
+                    self.process = None
+                    return {"status": "error", "error": "Proceso REPL finalizó inesperadamente o el navegador fue cerrado."}
+                return json.loads(response_line)
+            except Exception as e:
                 self.process = None
-                return {"status": "error", "error": "Proceso REPL finalizó inesperadamente o el navegador fue cerrado."}
-
-            return json.loads(response_line)
-        except Exception as e:
-            self.process = None
-            return {"status": "error", "error": str(e)}
+                return {"status": "error", "error": str(e)}
 
     def eval_code(self, code: str) -> Dict[str, Any]:
         """

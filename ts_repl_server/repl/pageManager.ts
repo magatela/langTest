@@ -9,6 +9,7 @@ const RAVEN_API_V2 = 'rest/raven/2.0/api/';
 class PageManager {
     private static browser: Browser;
     private static page: Page;
+    private static initPromise: Promise<Page> | null = null;
 
     constructor() {}
 
@@ -30,20 +31,32 @@ class PageManager {
     }
 
     static async getPage(): Promise<Page> {
-        const isBrowserConnected = PageManager.browser && PageManager.browser.isConnected();
-        const isPageValid = PageManager.page && !PageManager.page.isClosed();
-
-        if (!isBrowserConnected || !isPageValid) {
-            if (PageManager.browser && !isBrowserConnected) {
-                try { await PageManager.browser.close(); } catch {}
-                PageManager.browser = null as any;
-            }
-            const browserInstance = await PageManager.getBrowser();
-            const context = await browserInstance.newContext({ viewport: null, bypassCSP: true });
-            context.setDefaultTimeout(10000);
-            PageManager.page = await context.newPage();
+        if (PageManager.initPromise) {
+            return PageManager.initPromise;
         }
-        return PageManager.page;
+
+        PageManager.initPromise = (async () => {
+            try {
+                const isBrowserConnected = PageManager.browser && PageManager.browser.isConnected();
+                const isPageValid = PageManager.page && !PageManager.page.isClosed();
+
+                if (!isBrowserConnected || !isPageValid) {
+                    if (PageManager.browser && !isBrowserConnected) {
+                        try { await PageManager.browser.close(); } catch {}
+                        PageManager.browser = null as any;
+                    }
+                    const browserInstance = await PageManager.getBrowser();
+                    const context = await browserInstance.newContext({ viewport: null, bypassCSP: true });
+                    context.setDefaultTimeout(10000);
+                    PageManager.page = await context.newPage();
+                }
+                return PageManager.page;
+            } finally {
+                PageManager.initPromise = null;
+            }
+        })();
+
+        return PageManager.initPromise;
     }
 
     static async close() {
