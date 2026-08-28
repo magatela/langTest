@@ -1,23 +1,29 @@
 # modules/module_4_pom_generator/agent.py
 """
-Agente Generador y Actualizador de Page Object Models (POMs) en TypeScript (Módulo 4).
+ReAct-Agent für Modul 4 (Page Object Models in TypeScript) unter Verwendung von LangGraph.
+Unterstützt autonome Entscheidungen, Tool-Invocations (REPL, Dateisystem, Aria-Snapshots) und Selbstkorrektur.
 """
 
+import json
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Annotated, Generator
+from typing_extensions import TypedDict
 
+from langchain_core.tools import tool
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.checkpoint.memory import MemorySaver
 
 from config.config_loader import get_llm_config
-from modules.module_2_browser_repl.ts_repl_bridge import TSPlaywrightREPLBridge
+from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge
 from modules.module_4_pom_generator.prompts import (
     POM_GENERATOR_SYSTEM_PROMPT,
-    POM_UPDATER_SYSTEM_PROMPT,
-    build_pom_generation_prompt,
-    build_pom_update_prompt
+    POM_UPDATER_SYSTEM_PROMPT
 )
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -25,195 +31,200 @@ POM_DIR = ROOT_DIR / "ts_repl_server" / "POM"
 
 def get_pom_dir() -> Path:
     """
-    Retorna la ruta al directorio donde residen los POMs en TypeScript.
+    Gibt den Pfad zum Verzeichnis zurück, in dem die TypeScript-POMs liegen.
     """
     if not POM_DIR.exists():
         POM_DIR.mkdir(parents=True, exist_ok=True)
     return POM_DIR
 
-def list_available_reference_poms() -> List[str]:
+# === 🛠️ WERKZEUGE (TOOLS) FÜR DEN AGENTEN ===
+
+@tool
+def read_workspace_file(filepath: str) -> str:
     """
-    Lista todos los archivos .ts disponibles en ts_repl_server/POM/.
+    Liest den Inhalt einer Datei im Projekt (z. B. 'ts_repl_server/POM/NavigationPage.ts').
     """
-    p_dir = get_pom_dir()
-    if not p_dir.exists():
-        return []
-    return [f.name for f in p_dir.glob("*.ts")]
+    try:
+        p = Path(filepath)
+        if not p.is_absolute():
+            p = ROOT_DIR / filepath
+        if not p.exists():
+            return f"Fehler: Die Datei '{filepath}' wurde nicht gefunden."
+        return p.read_text(encoding="utf-8")
+    except Exception as e:
+        return f"Fehler beim Lesen von '{filepath}': {str(e)}"
 
-def read_reference_poms(selected_files: List[str]) -> str:
+@tool
+def write_workspace_file(filepath: str, content: str) -> str:
     """
-    Lee el contenido de los archivos de POM seleccionados como referencia.
+    Erstellt oder überschreibt eine Datei im Projekt mit dem angegebenen TypeScript-Code.
+    Standardmäßig sollte der Pfad im Ordner 'ts_repl_server/POM/' liegen (z. B. 'ts_repl_server/POM/LoginPage.ts').
     """
-    p_dir = get_pom_dir()
-    combined_code = []
-    for filename in selected_files:
-        filepath = p_dir / filename
-        if filepath.exists() and filepath.is_file():
-            try:
-                code = filepath.read_text(encoding="utf-8")
-                combined_code.append(f"// === Referencia: {filename} ===\n{code}")
-            except Exception as e:
-                combined_code.append(f"// Error al leer {filename}: {e}")
-    return "\n\n".join(combined_code)
+    try:
+        p = Path(filepath)
+        if not p.is_absolute():
+            if not filepath.startswith("ts_repl_server"):
+                p = POM_DIR / p.name
+            else:
+                p = ROOT_DIR / filepath
 
-def clean_typescript_code(raw_response: str) -> str:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # Markdown-Codeblocks bereinigen
+        clean_code = content
+        pattern = r"```(?:typescript|ts)?\s*([\s\S]*?)\s*```"
+        match = re.search(pattern, content, re.IGNORECASE)
+        if match:
+            clean_code = match.group(1).strip()
+
+        p.write_text(clean_code, encoding="utf-8")
+        return f"Erfolg: Datei erfolgreich gespeichert unter '{p}'."
+    except Exception as e:
+        return f"Fehler beim Schreiben von '{filepath}': {str(e)}"
+
+@tool
+def eval_in_repl(ts_code: str) -> str:
     """
-    Extrae código TypeScript limpio eliminando bloques markdown (```typescript ... ```).
+    Evaluiert TypeScript-Code in Echtzeit in der aktiven Playwright-REPL-Sitzung des Browsers.
+    Gibt das Ergebnis der Ausführung oder Fehlermeldungen zurück.
     """
-    pattern = r"```(?:typescript|ts)?\s*([\s\S]*?)\s*```"
-    match = re.search(pattern, raw_response, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-    return raw_response.strip()
-
-class POMGeneratorAgent:
-    def __init__(self, llm: Optional[Any] = None):
-        if llm is None:
-            config = get_llm_config()
-            model_info = config["models"][0]
-            self.llm = ChatOpenAI(
-                model=model_info.get("model", "gpt-4o"),
-                temperature=model_info.get("temperature", 0.2),
-                openai_api_key=config.get("apiKey", "mock-key"),
-                openai_api_base=config.get("apiBase", "https://api.openai.com/v1")
-            )
-        else:
-            self.llm = llm
-
-    def generate_pom(
-        self,
-        target_class_name: str,
-        reference_files: List[str],
-        aria_snapshot: str = "",
-        user_instructions: str = "",
-        mock_llm_response: Optional[str] = None
-    ) -> str:
-        """
-        Genera un nuevo POM en TypeScript.
-        """
-        if mock_llm_response is not None:
-            return clean_typescript_code(mock_llm_response)
-
-        ref_code = read_reference_poms(reference_files)
-        user_prompt = build_pom_generation_prompt(
-            target_class_name=target_class_name,
-            reference_poms_code=ref_code,
-            aria_snapshot=aria_snapshot,
-            user_instructions=user_instructions
-        )
-
-        messages = [
-            SystemMessage(content=POM_GENERATOR_SYSTEM_PROMPT),
-            HumanMessage(content=user_prompt)
-        ]
-
-        response = self.llm.invoke(messages)
-        return clean_typescript_code(response.content)
-
-    def update_pom(
-        self,
-        existing_filename: str,
-        reference_files: List[str] = None,
-        aria_snapshot: str = "",
-        user_instructions: str = "",
-        mock_llm_response: Optional[str] = None
-    ) -> str:
-        """
-        Actualiza un POM en TypeScript existente.
-        """
-        if mock_llm_response is not None:
-            return clean_typescript_code(mock_llm_response)
-
-        p_dir = get_pom_dir()
-        target_file = p_dir / existing_filename
-        if not target_file.exists():
-            raise FileNotFoundError(f"El archivo POM {existing_filename} no existe en {p_dir}")
-
-        existing_code = target_file.read_text(encoding="utf-8")
-        ref_code = read_reference_poms(reference_files or [])
-
-        user_prompt = build_pom_update_prompt(
-            existing_pom_code=existing_code,
-            reference_poms_code=ref_code,
-            aria_snapshot=aria_snapshot,
-            user_instructions=user_instructions
-        )
-
-        messages = [
-            SystemMessage(content=POM_UPDATER_SYSTEM_PROMPT),
-            HumanMessage(content=user_prompt)
-        ]
-
-        response = self.llm.invoke(messages)
-        return clean_typescript_code(response.content)
-
-def validate_pom_in_repl(pom_code: str, bridge: Optional[TSPlaywrightREPLBridge] = None) -> Dict[str, Any]:
-    """
-    Evalúa el código TypeScript del POM generado en el REPL para validar compilación.
-    """
-    if bridge is None:
-        from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge
+    try:
         bridge = get_repl_bridge()
+        if not bridge.ensure_started():
+            return json.dumps({"status": "error", "error": "REPL-Server konnte nicht gestartet werden."})
+        res = bridge.eval_code(ts_code)
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
 
-    if not bridge.ensure_started():
-        return {"status": "error", "error": "No se pudo iniciar el REPL para validación"}
-
-    return bridge.eval_code(pom_code)
-
-def run_pom_generator_agent(
-    mode: str = "create", # "create" o "update"
-    target_name: str = "LoginPage.ts",
-    reference_files: Optional[List[str]] = None,
-    aria_snapshot: str = "",
-    user_instructions: str = "",
-    validate: bool = False,
-    mock_response: Optional[str] = None,
-    bridge: Optional[TSPlaywrightREPLBridge] = None
-) -> Dict[str, Any]:
+@tool
+def inspect_aria_snapshot(selector: str = "body") -> str:
     """
-    Función de entrada principal para ejecutar el Agente Generador/Actualizador de POMs (Módulo 4).
+    Inspektioniert die aktive Ansicht im REPL-Browser und gibt die ARIA-Baumstruktur (Barrierefreiheitsbaum, Lokatoren und Schaltflächen) zurück.
     """
-    agent = POMGeneratorAgent()
-    p_dir = get_pom_dir()
+    try:
+        bridge = get_repl_bridge()
+        if not bridge.ensure_started():
+            return json.dumps({"status": "error", "error": "REPL-Server konnte nicht gestartet werden."})
+        res = bridge.get_aria_snapshot(selector)
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
 
-    if not target_name.endswith(".ts"):
-        target_file_name = f"{target_name}.ts"
-    else:
-        target_file_name = target_name
+@tool
+def take_screenshot(filename: str = "screenshot.png") -> str:
+    """
+    Erstellt einen Screenshot der aktiven Seite im REPL-Browser und speichert ihn.
+    """
+    try:
+        bridge = get_repl_bridge()
+        if not bridge.ensure_started():
+            return json.dumps({"status": "error", "error": "REPL-Server konnte nicht gestartet werden."})
+        output_path = str(ROOT_DIR / "results" / filename)
+        res = bridge.take_screenshot(output_path)
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
 
-    # Extraer nombre de la clase (ej. LoginPage.ts -> LoginPage)
-    class_name = Path(target_file_name).stem
+AGENT_TOOLS = [
+    read_workspace_file,
+    write_workspace_file,
+    eval_in_repl,
+    inspect_aria_snapshot,
+    take_screenshot
+]
 
-    if mode == "update":
-        generated_code = agent.update_pom(
-            existing_filename=target_file_name,
-            reference_files=reference_files or [],
-            aria_snapshot=aria_snapshot,
-            user_instructions=user_instructions,
-            mock_llm_response=mock_response
+# === 🧠 AGENTEN-ZUSTAND UND PROMPTS ===
+
+class AgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+
+SYSTEM_AGENT_PROMPT = """Du bist ein autonomer Testautomatisierungs-Agent (ReAct Agent) für Playwright in TypeScript.
+Du hast direkten Zugriff auf Werkzeuge zur Analyse von Webseiten (inspect_aria_snapshot, take_screenshot), zum Lesen/Schreiben von Dateien (read_workspace_file, write_workspace_file) und zur Ausführung im REPL-Browser (eval_in_repl).
+
+DEIN WORKFLOW:
+1. Analysiere die Anfrage des Benutzers. Wenn du vorhandene POMs prüfen musst, nutze `read_workspace_file`.
+2. Wenn du die aktive Ansicht untersuchen musst, nutze `inspect_aria_snapshot`.
+3. Erstelle oder aktualisiere die Page Object Model (POM) Klasse unter Einhaltung strenger TypeScript-Best-Practices (`Page`, `Locator`, `async`).
+4. Teste den generierten Code mit `eval_in_repl` im Browser. Wenn ein Fehler auftritt, korrigiere den Code selbstständig.
+5. Speichere die finale Datei mit `write_workspace_file` im Ordner `ts_repl_server/POM/`.
+6. Antworte dem Benutzer präzise auf Deutsch.
+"""
+
+def create_pom_agent_graph(llm_instance: Optional[Any] = None):
+    """
+    Erstellt und kompiliert den LangGraph ReAct StateGraph mit MemorySaver.
+    """
+    if llm_instance is None:
+        config = get_llm_config()
+        model_info = config["models"][0]
+        llm = ChatOpenAI(
+            model=model_info.get("model", "gpt-4o"),
+            temperature=model_info.get("temperature", 0.2),
+            openai_api_key=config.get("apiKey", "mock-key"),
+            openai_api_base=config.get("apiBase", "https://api.openai.com/v1")
         )
     else:
-        generated_code = agent.generate_pom(
-            target_class_name=class_name,
-            reference_files=reference_files or [],
-            aria_snapshot=aria_snapshot,
-            user_instructions=user_instructions,
-            mock_llm_response=mock_response
-        )
+        llm = llm_instance
 
-    # Guardar en ts_repl_server/POM/
-    output_path = p_dir / target_file_name
-    output_path.write_text(generated_code, encoding="utf-8")
+    llm_with_tools = llm.bind_tools(AGENT_TOOLS)
 
-    validation_result = None
-    if validate:
-        validation_result = validate_pom_in_repl(generated_code, bridge=bridge)
+    def agent_node(state: AgentState):
+        messages = [SystemMessage(content=SYSTEM_AGENT_PROMPT)] + state["messages"]
+        response = llm_with_tools.invoke(messages)
+        return {"messages": [response]}
 
-    return {
-        "status": "success",
-        "mode": mode,
-        "filename": target_file_name,
-        "path": str(output_path),
-        "code": generated_code,
-        "validation": validation_result
-    }
+    builder = StateGraph(AgentState)
+    builder.add_node("agent", agent_node)
+    builder.add_node("tools", ToolNode(AGENT_TOOLS))
+
+    builder.set_entry_point("agent")
+    builder.add_conditional_edges("agent", tools_condition)
+    builder.add_edge("tools", "agent")
+
+    memory = MemorySaver()
+    return builder.compile(checkpointer=memory)
+
+# Instanz des Graphen
+_COMPILED_GRAPH = None
+
+def get_pom_agent_graph(llm_instance: Optional[Any] = None):
+    global _COMPILED_GRAPH
+    if _COMPILED_GRAPH is None or llm_instance is not None:
+        _COMPILED_GRAPH = create_pom_agent_graph(llm_instance=llm_instance)
+    return _COMPILED_GRAPH
+
+def stream_pom_agent_turn(
+    user_message: str,
+    thread_id: str = "default_session",
+    llm_instance: Optional[Any] = None
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    Streamt die Interaktionen des Agenten (Gedanken, Tool-Aufrufe, Tool-Ergebnisse, finale Antworten)
+    für die Benutzeroberfläche.
+    """
+    app = get_pom_agent_graph(llm_instance=llm_instance)
+    config = {"configurable": {"thread_id": thread_id}}
+    inputs = {"messages": [HumanMessage(content=user_message)]}
+
+    for event in app.stream(inputs, config=config, stream_mode="values"):
+        last_msg = event["messages"][-1]
+        
+        if isinstance(last_msg, AIMessage) and last_msg.tool_calls:
+            for tc in last_msg.tool_calls:
+                yield {
+                    "type": "tool_call",
+                    "name": tc["name"],
+                    "args": tc["args"],
+                    "id": tc.get("id")
+                }
+        elif isinstance(last_msg, ToolMessage):
+            yield {
+                "type": "tool_result",
+                "name": last_msg.name,
+                "content": last_msg.content
+            }
+        elif isinstance(last_msg, AIMessage) and last_msg.content:
+            yield {
+                "type": "ai_response",
+                "content": last_msg.content
+            }

@@ -184,111 +184,15 @@ def menu_option_3_test_coder():
     console.print("[yellow]Función en preparación para integración completa en la Fase 5.[/yellow]")
 
 def menu_option_4_pom_generator():
-    console.print(Rule("[bold green]Módulo 4: Generador y Actualizador de POMs TypeScript[/bold green]"))
-    console.print("[dim]Genera o actualiza clases POM en TypeScript (.ts) tomando como modelo los POMs activos en `ts_repl_server/POM/`.[/dim]\n")
+    console.print(Rule("[bold green]Módulo 4: Generador y Actualizador de POMs TypeScript (TUI)[/bold green]"))
+    console.print("[dim]Iniciando la Interfaz Gráfica de Consola (Textual TUI) con agente ReAct de LangGraph...[/dim]\n")
 
-    from modules.module_4_pom_generator.agent import (
-        list_available_reference_poms,
-        run_pom_generator_agent
-    )
-    from modules.module_2_browser_repl.ts_repl_bridge import get_repl_bridge
-
-    # 1. Modo: Crear vs Actualizar
-    console.print("  [bold white]1.[/bold white] 🆕 Crear un nuevo POM en TypeScript")
-    console.print("  [bold white]2.[/bold white] 🔄 Actualizar un POM en TypeScript existente")
-    mode_choice = Prompt.ask("\n[bold yellow]Selecciona el modo[/bold yellow]", choices=["1", "2"], default="1")
-    mode = "create" if mode_choice == "1" else "update"
-
-    # 2. Nombre del archivo objetivo
-    available_poms = list_available_reference_poms()
-    default_name = "LoginPage.ts" if mode == "create" else (available_poms[0] if available_poms else "NavigationPage.ts")
-    target_name = Prompt.ask("[yellow]Nombre del archivo POM objetivo (.ts)[/yellow]", default=default_name)
-
-    # 3. Selección de POMs referenciales
-    selected_refs = []
-    if available_poms:
-        console.print(f"\n[cyan]POMs referenciales disponibles en `ts_repl_server/POM/`:[/cyan] {', '.join(available_poms)}")
-        ref_input = Prompt.ask(
-            "[yellow]Ingresa los POMs de referencia a seguir (separados por coma, 'todos'/'all', o Enter para omitir)[/yellow]",
-            default="todos"
-        ).strip()
-
-        if ref_input.lower() in ["todos", "all", "t"]:
-            selected_refs = available_poms
-        elif ref_input:
-            entered_list = [r.strip() for r in ref_input.split(",") if r.strip()]
-            selected_refs = [r if r.endswith(".ts") else f"{r}.ts" for r in entered_list]
-            selected_refs = [r for r in selected_refs if r in available_poms]
-
-    # 4. Inspección vía REPL (Aria Snapshot opcional)
-    aria_snapshot = ""
-    use_repl_context = Confirm.ask("\n¿Deseas conectar con la sesión activa del REPL (Módulo 2) para extraer un Aria Snapshot/captura?", default=False)
-    if use_repl_context:
-        bridge = get_repl_bridge()
-        if not bridge.is_alive():
-            console.print("[bold yellow]ℹ️ El servidor REPL / navegador no está abierto o fue cerrado por el usuario. Iniciando / abriendo navegador automáticamente...[/bold yellow]")
-
-        try:
-            if bridge.ensure_started():
-                console.print("[bold green]✓ Servidor REPL y navegador abiertos y listos.[/bold green]")
-                selector = Prompt.ask("[yellow]Selector para inspeccionar[/yellow]", default="body")
-                res = bridge.get_aria_snapshot(selector)
-                if res.get("status") == "success":
-                    aria_snapshot = str(res.get("result", ""))
-                    console.print("[bold green]✓ Aria Snapshot capturado exitosamente desde la vista activa.[/bold green]")
-                else:
-                    console.print(f"[yellow]⚠️ No se pudo obtener Aria Snapshot: {res.get('error')}[/yellow]")
-            else:
-                console.print("[red]❌ No se pudo conectar con el REPL.[/red]")
-        except Exception as e:
-            console.print(f"[red]❌ Error al comunicarse con el REPL: {e}[/red]")
-
-    # 5. Instrucciones adicionales del usuario
-    user_instructions = Prompt.ask("\n[yellow]Instrucciones adicionales para el LLM (o presiona Enter para omitir)[/yellow]", default="")
-
-    # 6. Modo Mock offline vs LLM real
-    use_mock = Confirm.ask("\n¿Simular respuesta LLM (Modo Offline completo)?", default=False)
-    mock_resp = None
-    if use_mock:
-        class_name = Path(target_name).stem
-        mock_resp = f"""```typescript
-import {{ Page, Locator }} from '@playwright/test';
-
-export class {class_name} {{
-    readonly page: Page;
-    readonly mainTitle: Locator;
-
-    constructor(page: Page) {{
-        this.page = page;
-        this.mainTitle = page.getByRole('heading', {{ level: 1 }});
-    }}
-
-    async getTitleText(): Promise<string> {{
-        return await this.mainTitle.innerText();
-    }}
-}}
-```"""
-
-    console.print("\n[bold cyan]🚀 Generando/Actualizando POM con el LLM...[/bold cyan]\n")
     try:
-        result = run_pom_generator_agent(
-            mode=mode,
-            target_name=target_name,
-            reference_files=selected_refs,
-            aria_snapshot=aria_snapshot,
-            user_instructions=user_instructions,
-            mock_response=mock_resp
-        )
-
-        console.print(f"[bold green]✅ Archivo POM generado/actualizado exitosamente en:[/bold green] {result['path']}")
-        console.print(Panel(
-            Markdown(f"```typescript\n{result['code']}\n```"),
-            title=f"📄 {result['filename']}",
-            border_style="green",
-            expand=True
-        ))
+        from modules.module_4_pom_generator.ui import POMGeneratorTUI
+        app = POMGeneratorTUI()
+        app.run()
     except Exception as e:
-        console.print(f"[bold red]❌ Error al procesar la generación del POM:[/bold red] {e}")
+        console.print(f"[bold red]❌ Error al iniciar la interfaz TUI:[bold red] {e}")
 
 def menu_option_5_run_tests():
     console.print(Rule("[bold green]Ejecución de Pruebas Unitarias Offline[/bold green]"))

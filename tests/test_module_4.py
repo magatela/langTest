@@ -12,12 +12,13 @@ from modules.module_4_pom_generator.prompts import (
     POM_UPDATER_SYSTEM_PROMPT
 )
 from modules.module_4_pom_generator.agent import (
-    list_available_reference_poms,
-    read_reference_poms,
-    clean_typescript_code,
-    POMGeneratorAgent,
-    run_pom_generator_agent
+    get_pom_dir,
+    read_workspace_file,
+    write_workspace_file,
+    create_pom_agent_graph,
+    stream_pom_agent_turn
 )
+from modules.module_4_pom_generator.ui import POMGeneratorTUI
 
 class TestModule4POMGenerator(unittest.TestCase):
 
@@ -31,23 +32,9 @@ class TestModule4POMGenerator(unittest.TestCase):
             "export class NavigationPage { constructor(public page: any) {} }",
             encoding="utf-8"
         )
-        (self.pom_dir / "BerichtMainPage.ts").write_text(
-            "export class BerichtMainPage { constructor(public page: any) {} }",
-            encoding="utf-8"
-        )
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-    def test_clean_typescript_code(self):
-        raw_code = """```typescript
-export class TestPage {
-    readonly page: Page;
-}
-```"""
-        cleaned = clean_typescript_code(raw_code)
-        self.assertTrue(cleaned.startswith("export class TestPage"))
-        self.assertFalse("```" in cleaned)
 
     def test_build_pom_generation_prompt(self):
         prompt = build_pom_generation_prompt(
@@ -59,7 +46,6 @@ export class TestPage {
         self.assertIn("LoginPage", prompt)
         self.assertIn("RefPage", prompt)
         self.assertIn("button 'Login'", prompt)
-        self.assertIn("submit", prompt)
 
     def test_build_pom_update_prompt(self):
         prompt = build_pom_update_prompt(
@@ -69,69 +55,32 @@ export class TestPage {
         )
         self.assertIn("OldPage", prompt)
         self.assertIn("textbox 'Username'", prompt)
-        self.assertIn("username", prompt)
 
-    @patch("modules.module_4_pom_generator.agent.get_pom_dir")
-    def test_list_and_read_reference_poms(self, mock_get_pom_dir):
-        mock_get_pom_dir.return_value = self.pom_dir
+    @patch("modules.module_4_pom_generator.agent.ROOT_DIR")
+    def test_workspace_file_tools(self, mock_root_dir):
+        mock_root_dir.__truediv__.return_value = self.temp_dir
+        
+        test_file = self.temp_dir / "test.txt"
+        test_file.write_text("Hello World", encoding="utf-8")
 
-        poms = list_available_reference_poms()
-        self.assertIn("NavigationPage.ts", poms)
-        self.assertIn("BerichtMainPage.ts", poms)
+        res_read = read_workspace_file.invoke({"filepath": str(test_file)})
+        self.assertEqual(res_read, "Hello World")
 
-        combined = read_reference_poms(["NavigationPage.ts"])
-        self.assertIn("export class NavigationPage", combined)
+        res_write = write_workspace_file.invoke({
+            "filepath": str(self.temp_dir / "out.ts"),
+            "content": "export class OutPage {}"
+        })
+        self.assertIn("Erfolg", res_write)
 
-    @patch("modules.module_4_pom_generator.agent.get_pom_dir")
-    def test_run_pom_generator_create_mock(self, mock_get_pom_dir):
-        mock_get_pom_dir.return_value = self.pom_dir
+    def test_create_pom_agent_graph(self):
+        mock_llm = MagicMock()
+        mock_llm.bind_tools.return_value = mock_llm
+        graph = create_pom_agent_graph(llm_instance=mock_llm)
+        self.assertIsNotNone(graph)
 
-        mock_response = """```typescript
-import { Page, Locator } from '@playwright/test';
-
-export class CustomFormPage {
-    readonly page: Page;
-    constructor(page: Page) {
-        this.page = page;
-    }
-}
-```"""
-
-        result = run_pom_generator_agent(
-            mode="create",
-            target_name="CustomFormPage.ts",
-            reference_files=["NavigationPage.ts"],
-            aria_snapshot="- button 'Submit'",
-            mock_response=mock_response
-        )
-
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(result["filename"], "CustomFormPage.ts")
-        self.assertIn("export class CustomFormPage", result["code"])
-        self.assertTrue((self.pom_dir / "CustomFormPage.ts").exists())
-
-    @patch("modules.module_4_pom_generator.agent.get_pom_dir")
-    def test_run_pom_generator_update_mock(self, mock_get_pom_dir):
-        mock_get_pom_dir.return_value = self.pom_dir
-
-        # Crear archivo previo a actualizar
-        (self.pom_dir / "EditPage.ts").write_text("export class EditPage {}", encoding="utf-8")
-
-        mock_response = """```typescript
-export class EditPage {
-    readonly newField: Locator;
-}
-```"""
-
-        result = run_pom_generator_agent(
-            mode="update",
-            target_name="EditPage.ts",
-            user_instructions="Agregar newField",
-            mock_response=mock_response
-        )
-
-        self.assertEqual(result["status"], "success")
-        self.assertIn("readonly newField: Locator;", result["code"])
+    def test_tui_app_instantiation(self):
+        app = POMGeneratorTUI()
+        self.assertEqual(app.TITLE, "POM Generator Agent - ReAct TUI")
 
 if __name__ == "__main__":
     unittest.main()

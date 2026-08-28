@@ -157,8 +157,14 @@ class TSPlaywrightREPLBridge:
     def get_aria_snapshot(self, selector: str = "body") -> Dict[str, Any]:
         """
         Obtiene el ARIA snapshot del selector indicado mediante la sesión activa del REPL.
+        Soporta selectores CSS, roles de Playwright y atributos (ej. [data-role="..."] o data-role="...").
         """
-        code = f"await page.locator({json.dumps(selector)}).ariaSnapshot();"
+        sel = (selector or "body").strip()
+        # Normalizar automáticamente atributos del tipo data-role="val" o id="val" ingresados sin corchetes [...]
+        if "=" in sel and not sel.startswith("[") and not sel.startswith("role=") and not sel.startswith("text=") and not sel.startswith("internal:"):
+            sel = f"[{sel}]"
+
+        code = f"await page.locator({json.dumps(sel)}).ariaSnapshot();"
         return self.eval_code(code)
 
     def take_screenshot(self, path: Optional[str] = None) -> Dict[str, Any]:

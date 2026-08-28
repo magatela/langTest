@@ -3,11 +3,8 @@ pyyaml
 langgraph
 langchain_openai
 langchain_core
-pydantic
-jinja2
 pyperclip
-pywin32
-pip-system-certs
 rich
 python-dotenv
 pytest
+textual
