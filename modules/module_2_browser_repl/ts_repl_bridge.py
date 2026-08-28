@@ -53,34 +53,16 @@ class TSPlaywrightREPLBridge:
 
     def is_alive(self) -> bool:
         """
-        Verifica si el servidor REPL y el navegador están vivos y respondiendo.
-        Si la ventana fue cerrada por el usuario o el proceso finalizó, reinicia el estado interno.
+        Verifica si el servidor REPL está vivo.
         """
-        if not self.is_running():
-            return False
-        try:
-            req_id = str(uuid.uuid4())
-            payload = json.dumps({"action": "eval", "id": req_id, "code": "1+1"}) + "\n"
-            self.process.stdin.write(payload)
-            self.process.stdin.flush()
-            line = self.process.stdout.readline()
-            if line:
-                res = json.loads(line)
-                if res.get("status") == "success":
-                    return True
-        except Exception:
-            pass
-
-        self.process = None
-        return False
+        return self.is_running()
 
     def ensure_started(self, timeout: int = 15) -> bool:
         """
-        Garantiza que el servidor REPL y el navegador estén abiertos y listos.
-        Si están cerrados o no responden, los inicia o reinicia automáticamente de forma atómica.
+        Garantiza que el servidor REPL esté abierto y listo de forma atómica.
         """
         with self._lock:
-            if self.is_alive():
+            if self.is_running():
                 return True
             return self._start_unlocked(timeout=timeout)
 
@@ -110,7 +92,7 @@ class TSPlaywrightREPLBridge:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            bufsize=1,
+            encoding="utf-8",
             env=env
         )
 
@@ -131,10 +113,11 @@ class TSPlaywrightREPLBridge:
         Envía un comando JSON al proceso Node.js y espera la respuesta por stdout.
         Re-inicia el servidor automáticamente si se detecta que estaba cerrado.
         """
-        if not self.ensure_started():
-            return {"status": "error", "error": "No se pudo iniciar el proceso TS REPL"}
-
         with self._lock:
+            if not self.is_running():
+                if not self._start_unlocked():
+                    return {"status": "error", "error": "No se pudo iniciar el proceso TS REPL"}
+
             req_id = str(uuid.uuid4())
             payload = {"action": action, "id": req_id, **kwargs}
 
@@ -205,11 +188,20 @@ class TSPlaywrightREPLBridge:
         """
         Detiene la sesión del navegador y el servidor REPL.
         """
-        if self.process and self.process.poll() is None:
-            try:
-                self.send_command("close")
-            except Exception:
-                pass
-            self.process.terminate()
-            self.process = None
+        with self._lock:
+            if self.process and self.process.poll() is None:
+                try:
+                    req_id = str(uuid.uuid4())
+                    payload = json.dumps({"action": "close", "id": req_id}) + "\n"
+                    self.process.stdin.write(payload)
+                    self.process.stdin.flush()
+                except Exception:
+                    pass
+            if self.process:
+                try:
+                    if self.process.poll() is None:
+                        self.process.terminate()
+                except Exception:
+                    pass
+                self.process = None
 

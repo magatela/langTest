@@ -72,6 +72,7 @@ class Executor {
             const moduleExports = {};
             const executionContext: Record<string, any> = {
                 page: activePage,
+                PageManager: PageManager,
                 require: (moduleName: string) => {
                     try {
                         return customRequire(moduleName);

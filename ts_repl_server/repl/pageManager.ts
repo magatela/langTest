@@ -41,23 +41,31 @@ class PageManager {
 
         PageManager.initPromise = (async () => {
             try {
-                const isBrowserConnected = PageManager.browser && PageManager.browser.isConnected();
-                const isPageValid = PageManager.page && !PageManager.page.isClosed();
+                const browserInstance = await PageManager.getBrowser();
 
-                if (!isBrowserConnected || !isPageValid) {
-                    if (PageManager.browser && !isBrowserConnected) {
-                        try { await PageManager.browser.close(); } catch {}
-                        PageManager.browser = null as any;
-                        PageManager.page = null as any;
-                    }
-                    const browserInstance = await PageManager.getBrowser();
-                    const context = await browserInstance.newContext({ viewport: null, bypassCSP: true });
-                    context.setDefaultTimeout(10000);
-                    PageManager.page = await context.newPage();
-                    PageManager.page.on('close', () => {
-                        PageManager.page = null as any;
-                    });
+                // 1. Si la página actual sigue abierta y válida, retornarla de inmediato
+                if (PageManager.page && !PageManager.page.isClosed()) {
+                    return PageManager.page;
                 }
+
+                // 2. Reutilizar contexto existente o crear uno nuevo si no existe ninguno
+                let context = browserInstance.contexts()[0];
+                if (!context) {
+                    context = await browserInstance.newContext({ viewport: null, bypassCSP: true });
+                    context.setDefaultTimeout(10000);
+                }
+
+                // 3. Reutilizar pestaña/página viva dentro del contexto o abrir una nueva
+                let activePage = context.pages().find(p => !p.isClosed());
+                if (!activePage) {
+                    activePage = await context.newPage();
+                }
+
+                PageManager.page = activePage;
+                PageManager.page.on('close', () => {
+                    PageManager.page = null as any;
+                });
+
                 return PageManager.page;
             } finally {
                 PageManager.initPromise = null;
