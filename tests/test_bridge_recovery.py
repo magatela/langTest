@@ -22,8 +22,14 @@ def test_bridge_lifecycle_and_recovery():
     print(f"Procesos hijos detectados ({len(children)}): {[c.pid for c in children]}")
 
     print("\n[2] Simulando crash inducido matando el subproceso directamente...")
+    for c in children:
+        try:
+            c.kill()
+        except Exception:
+            pass
     proc.kill()
     time.sleep(0.5)
+
 
     print("\n[3] Enviando nuevo comando para probar auto-recuperación...")
     res2 = bridge.eval_code("return 40 + 2;")

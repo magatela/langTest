@@ -43,7 +43,15 @@ class Executor {
         await PageManager.getPage();
     }
 
-    async runUserCode(code: string) {
+    async runUserCode(code: string): Promise<{ result: any, logs: string[] }> {
+        const capturedLogs: string[] = [];
+        const customConsole = {
+            log: (...args: any[]) => { capturedLogs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')); },
+            info: (...args: any[]) => { capturedLogs.push("[INFO] " + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')); },
+            warn: (...args: any[]) => { capturedLogs.push("[WARN] " + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')); },
+            error: (...args: any[]) => { capturedLogs.push("[ERROR] " + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')); }
+        };
+
         try {
             const activePage = await PageManager.getPage();
 
@@ -73,6 +81,7 @@ class Executor {
             const executionContext: Record<string, any> = {
                 page: activePage,
                 PageManager: PageManager,
+                console: customConsole,
                 require: (moduleName: string) => {
                     try {
                         return customRequire(moduleName);
@@ -101,9 +110,14 @@ class Executor {
                 })();
             `;
             const fn = new Function("context", wrappedCode);
-            return await fn(executionContext);
+            const result = await fn(executionContext);
+            return { result, logs: capturedLogs };
         } catch (err: any) {
-            throw new Error(err.message || String(err));
+            const errorObj: any = new Error(err.message || String(err));
+            errorObj.name = err.name || "Error";
+            errorObj.stack = err.stack;
+            errorObj.logs = capturedLogs;
+            throw errorObj;
         }
     }
 }
@@ -154,16 +168,26 @@ async function startIPCMode() {
         const id = req.id || "0";
         try {
             if (req.action === "eval") {
-                const result = await executor.runUserCode(req.code || "");
-                console.log(JSON.stringify({ id, status: "success", result: result || "Ausführung erfolgreich" }));
+                const { result, logs } = await executor.runUserCode(req.code || "");
+                console.log(JSON.stringify({
+                    id,
+                    status: "success",
+                    result: result !== undefined ? result : "Ausführung erfolgreich",
+                    logs
+                }));
             } else if (req.action === "eval_file") {
                 const absPath = path.resolve(req.filePath);
                 if (!fs.existsSync(absPath)) {
                     console.log(JSON.stringify({ id, status: "error", error: `Archivo no encontrado: ${absPath}` }));
                 } else {
                     const code = fs.readFileSync(absPath, 'utf-8');
-                    const result = await executor.runUserCode(code);
-                    console.log(JSON.stringify({ id, status: "success", result: result || "Ausführung erfolgreich" }));
+                    const { result, logs } = await executor.runUserCode(code);
+                    console.log(JSON.stringify({
+                        id,
+                        status: "success",
+                        result: result !== undefined ? result : "Ausführung erfolgreich",
+                        logs
+                    }));
                 }
             } else if (req.action === "close") {
                 console.log(JSON.stringify({ id, status: "success", result: "Navegador cerrado" }));
@@ -172,7 +196,14 @@ async function startIPCMode() {
                 console.log(JSON.stringify({ id, status: "error", error: `Acción desconocida: ${req.action}` }));
             }
         } catch (error: any) {
-            console.log(JSON.stringify({ id, status: "error", error: error.message, stack: error.stack }));
+            console.log(JSON.stringify({
+                id,
+                status: "error",
+                error: error.message || String(error),
+                name: error.name || "Error",
+                stack: error.stack,
+                logs: error.logs || []
+            }));
         }
     });
 }
@@ -214,8 +245,11 @@ async function startInteractiveMode() {
                     console.log(`LOG## Ejecutando código directo...`);
                 }
 
-                const result = await executor.runUserCode(codeToRun);
-                console.log("LOG## Ergebnis:", result || "Ausführung erfolgreich");
+                const { result, logs } = await executor.runUserCode(codeToRun);
+                for (const log of logs) {
+                    console.log("LOG##", log);
+                }
+                console.log("LOG## Ergebnis:", result !== undefined ? result : "Ausführung erfolgreich");
             } catch (error: any) {
                 console.error("Fehler bei der Ausführung:", error.message);
             }
