@@ -110,6 +110,24 @@ class Executor {
 
 const executor = new Executor();
 
+let isExiting = false;
+async function gracefulExit(exitCode: number = 0) {
+    if (isExiting) return;
+    isExiting = true;
+    try {
+        await PageManager.close();
+    } catch {
+        // Ignorar errores durante el cierre
+    } finally {
+        process.exit(exitCode);
+    }
+}
+
+// Registro de señales del sistema para terminación limpia
+process.on('SIGTERM', () => { gracefulExit(0); });
+process.on('SIGINT', () => { gracefulExit(0); });
+process.on('SIGHUP', () => { gracefulExit(0); });
+
 // --- MODO AGENTE IPC (JSON-RPC sobre stdin/stdout) ---
 async function startIPCMode() {
     await executor.init();
@@ -148,9 +166,8 @@ async function startIPCMode() {
                     console.log(JSON.stringify({ id, status: "success", result: result || "Ausführung erfolgreich" }));
                 }
             } else if (req.action === "close") {
-                await PageManager.close();
                 console.log(JSON.stringify({ id, status: "success", result: "Navegador cerrado" }));
-                process.exit(0);
+                await gracefulExit(0);
             } else {
                 console.log(JSON.stringify({ id, status: "error", error: `Acción desconocida: ${req.action}` }));
             }
@@ -176,8 +193,8 @@ async function startInteractiveMode() {
         rl.question('LOG## Datei/Code > ', async (inputVal) => {
             const trimmed = inputVal.trim();
             if (trimmed.toLowerCase() === 'exit') {
-                await PageManager.close();
                 rl.close();
+                await gracefulExit(0);
                 return;
             }
 

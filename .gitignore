@@ -18,6 +18,8 @@ ts_repl_server/node_modules/
 ts_repl_server\package-lock.json
 
 # Generated Outputs
+results/
 steps.json
 response.json
 *.log
+
